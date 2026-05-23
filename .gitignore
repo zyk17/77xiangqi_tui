@@ -1,4 +1,5 @@
 target/
+xiangqi_tui.conf
 .idea/
 *.log
 *.tmp

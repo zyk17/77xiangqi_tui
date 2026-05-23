@@ -31,25 +31,11 @@ impl Default for GameState {
             red_ai: false,
             black_ai: false,
             query_mode: false,
-            realtime_eval: true,
+            realtime_eval: false,
             rotated: false,
             last_move_uci: None,
             pending_arrow: None,
-            analysis: AnalysisSnapshot {
-                time_text: "0.25s".to_string(),
-                depth: 17,
-                nps: 15744,
-                nodes: 3_920_000,
-                score_text: "+6".to_string(),
-                best_move: "车八进九".to_string(),
-                win_rate_text: "50.9%/49.1%".to_string(),
-                pv: vec![
-                    "兵七进一".to_string(),
-                    "炮2平三".to_string(),
-                    "车9进1".to_string(),
-                ],
-                source: "skeleton".to_string(),
-            },
+            analysis: AnalysisSnapshot::idle(),
         }
     }
 }

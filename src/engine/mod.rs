@@ -7,14 +7,17 @@
 //! - 强制变招
 //! - Tauri / JSON 数据桥接
 
+pub mod analysis_store;
 pub mod analysis_types;
 pub mod protocol;
 pub mod pv_ui;
+pub mod stream;
 pub mod uci_ucci_engine;
 
-pub use analysis_types::{EngineAnalyzeResult, EngineInfoCandidate};
-
-pub use uci_ucci_engine::UciUcciEngine;
+pub use analysis_store::EngineAnalysisStore;
+pub use analysis_types::EngineAnalyzeResult;
+pub use stream::EngineStreamRuntime;
+pub use uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineProtocol {

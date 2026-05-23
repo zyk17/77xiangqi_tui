@@ -141,10 +141,14 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
 }
 
 fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(5)])
+        .split(area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(9), Constraint::Length(7), Constraint::Min(0)])
-        .split(area);
+        .split(rows[0]);
 
     let engine_lines = vec![
         Line::from(format!("路径: {}", display_or_placeholder(&app.engine.path))),
@@ -181,12 +185,18 @@ fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
         chunks[1],
     );
 
+    let hint = if app.focus == Focus::SettingsSection(SettingsSection::Engine) {
+        "下方 C 区输入引擎可执行文件路径，Enter 保存到 xiangqi_tui.conf。"
+    } else {
+        "参考 GUI 仓库实现细节；逻辑对照见 NextStep.md。"
+    };
     frame.render_widget(
-        Paragraph::new("引擎流式调用、按钮字体与行为细节继续参考 GUI 仓库。")
+        Paragraph::new(hint)
             .block(block("说明"))
             .wrap(Wrap { trim: true }),
         chunks[2],
     );
+    render_command_input(frame, rows[1], app);
     Rect::default()
 }
 
@@ -227,7 +237,11 @@ fn render_board(frame: &mut Frame<'_>, area: Rect, board: &Board90, rotated: boo
 }
 
 fn render_command_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let title = if app.focus == Focus::CommandInput {
+    let settings_engine_edit = app.screen == Screen::Settings
+        && app.focus == Focus::SettingsSection(SettingsSection::Engine);
+    let title = if settings_engine_edit {
+        "C 引擎路径*"
+    } else if app.focus == Focus::CommandInput {
         "C 输入*"
     } else {
         "C 输入"

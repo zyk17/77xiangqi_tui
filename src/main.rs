@@ -5,6 +5,7 @@ mod game;
 mod input;
 mod runtime_log;
 mod service;
+mod settings_config;
 mod ui;
 mod xiangqi;
 

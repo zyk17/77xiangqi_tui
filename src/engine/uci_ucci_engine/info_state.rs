@@ -88,7 +88,7 @@ pub(crate) fn select_main_line_from_candidates(
 }
 
 /// 与 `^[a-i][0-9][a-i][0-9]$` 一致。
-pub(crate) fn uci_xiangqi_best_ready(s: &str) -> bool {
+pub fn uci_xiangqi_best_ready(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }

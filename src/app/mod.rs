@@ -11,6 +11,7 @@ use crate::{
     game::{BoardArrow, GameState},
     input::InputState,
     service::{AppServices, CoordinateMove, ParsedCommand, SlashCommand},
+    settings_config,
     ui::{self, HitTarget},
 };
 
@@ -125,7 +126,7 @@ pub enum Focus {
     SettingsSection(SettingsSection),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct App {
     pub should_quit: bool,
     pub screen: Screen,
@@ -137,22 +138,30 @@ pub struct App {
     pub input: InputState,
     pub board_area: Option<Rect>,
     pub services: AppServices,
+    last_analysis_revision: u64,
 }
 
 impl Default for App {
     fn default() -> Self {
+        let mut engine = EngineConfig::default();
+        engine.path = settings_config::load_engine_path();
+        let status = if engine.path.is_empty() {
+            "就绪。在「设置」中填写引擎路径，或设置环境变量 XIANGQI_ENGINE_PATH。".to_string()
+        } else {
+            format!("已加载引擎路径：{}", engine.path)
+        };
         Self {
             should_quit: false,
             screen: Screen::Battle,
             focus: Focus::CommandInput,
             game: GameState::default(),
-            engine: EngineConfig::default(),
+            engine,
             book: BookConfig::default(),
-            status: "已完成初始骨架。当前重点是棋盘、命令区、按钮区与评估区基建。"
-                .to_string(),
+            status,
             input: InputState::default(),
             board_area: None,
             services: AppServices::default(),
+            last_analysis_revision: 0,
         }
     }
 }
@@ -160,6 +169,7 @@ impl Default for App {
 impl App {
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()> {
         while !self.should_quit {
+            self.tick_engine_stream();
             terminal.draw(|frame| {
                 let output = ui::render(frame, self);
                 self.board_area = Some(output.board_area);
@@ -179,7 +189,60 @@ impl App {
             }
         }
 
+        self.services.engine.stop_stream();
         Ok(())
+    }
+
+    /// 流式引擎：后台 `go infinite` 写共享快照，每帧刷新 `D` 区（对齐 GUI `analysis_stream` 思路，无 JSON/Tauri）。
+    fn tick_engine_stream(&mut self) {
+        if self.screen != Screen::Battle {
+            self.services.engine.stop_stream();
+            return;
+        }
+        let fen = self.game.board.to_fen();
+        let want_stream = self.game.realtime_eval || self.game.query_mode;
+        self.services
+            .engine
+            .ensure_stream(&fen, &self.engine, want_stream);
+        if !want_stream {
+            return;
+        }
+        let Some((store, revision)) = self
+            .services
+            .engine
+            .snapshot_if_newer(self.last_analysis_revision)
+        else {
+            return;
+        };
+        self.last_analysis_revision = revision;
+        self.services.analysis.apply_engine_store(
+            &mut self.game.analysis,
+            &store,
+            self.game.query_mode,
+            &mut self.game.pending_arrow,
+        );
+    }
+
+    fn refresh_engine_after_mode_change(&mut self) {
+        self.tick_engine_stream();
+        if self.game.realtime_eval || self.game.query_mode {
+            self.status = format!(
+                "引擎流式分析中{}",
+                if self.services.engine.is_streaming() {
+                    ""
+                } else if self.engine.path.trim().is_empty() {
+                    "（请先在设置中配置引擎路径）"
+                } else {
+                    "（等待引擎输出）"
+                }
+            );
+        } else {
+            self.services.engine.stop_stream();
+            self.game.pending_arrow = None;
+            self.game.analysis = self.services.analysis.idle_snapshot();
+            self.last_analysis_revision = 0;
+            self.status = "已关闭实时评估/查询。".to_string();
+        }
     }
 
     fn on_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
@@ -223,7 +286,13 @@ impl App {
                 }
                 HitTarget::SettingsSection(section) => {
                     self.focus = Focus::SettingsSection(section);
-                    self.status = format!("已聚焦 {}。后续在这里接表单。", section.title());
+                    if section == SettingsSection::Engine {
+                        self.input.set_text(&self.engine.path);
+                        self.status =
+                            "编辑引擎路径后按 Enter 保存（写入 xiangqi_tui.conf）。".to_string();
+                    } else {
+                        self.status = format!("已聚焦 {}。", section.title());
+                    }
                 }
                 HitTarget::BoardCell(file, rank) => {
                     self.focus = Focus::CommandInput;
@@ -234,11 +303,16 @@ impl App {
     }
 
     fn handle_char(&mut self, ch: char) {
-        if self.screen != Screen::Battle {
+        if self.screen == Screen::Settings {
             match ch {
                 '1' => self.switch_screen(Screen::Battle),
                 '2' => self.switch_screen(Screen::Settings),
                 _ => {}
+            }
+            if matches!(self.focus, Focus::SettingsSection(SettingsSection::Engine)) {
+                if ch.is_ascii() || matches!(ch, ' ' | '\\' | '/' | ':' | '.' | '-' | '_') {
+                    self.input.insert_char(ch);
+                }
             }
             return;
         }
@@ -258,12 +332,24 @@ impl App {
     }
 
     fn command_backspace(&mut self) {
+        if self.screen == Screen::Settings
+            && matches!(self.focus, Focus::SettingsSection(SettingsSection::Engine))
+        {
+            self.input.backspace();
+            return;
+        }
         if matches!(self.focus, Focus::CommandInput) {
             self.input.backspace();
         }
     }
 
     fn submit_command(&mut self) {
+        if self.screen == Screen::Settings
+            && matches!(self.focus, Focus::SettingsSection(SettingsSection::Engine))
+        {
+            self.submit_settings_engine_path();
+            return;
+        }
         if !matches!(self.focus, Focus::CommandInput) {
             return;
         }
@@ -293,6 +379,7 @@ impl App {
         match command {
             SlashCommand::New => {
                 self.game.reset();
+                self.refresh_engine_after_mode_change();
                 self.status = format!("已执行 {}，新游戏。", command.name());
             }
             SlashCommand::Undo => self.status = "已识别 /undo。待接历史栈。".to_string(),
@@ -315,8 +402,7 @@ impl App {
             }
             SlashCommand::Query => {
                 self.game.query_mode = !self.game.query_mode;
-                self.status =
-                    format!("查询模式：{}", if self.game.query_mode { "开启" } else { "关闭" });
+                self.refresh_engine_after_mode_change();
             }
             SlashCommand::Rotate => {
                 self.game.rotated = !self.game.rotated;
@@ -331,14 +417,7 @@ impl App {
             }
             SlashCommand::Eval => {
                 self.game.realtime_eval = !self.game.realtime_eval;
-                self.status = format!(
-                    "实时评估：{}",
-                    if self.game.realtime_eval {
-                        "开启"
-                    } else {
-                        "关闭"
-                    }
-                );
+                self.refresh_engine_after_mode_change();
             }
             SlashCommand::CopyFen => {
                 self.status = format!("当前 FEN：{}", self.game.board.to_fen());
@@ -353,12 +432,36 @@ impl App {
         }
     }
 
+    fn submit_settings_engine_path(&mut self) {
+        let path = self.input.take_text();
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            self.status = "引擎路径为空，未保存。".to_string();
+            return;
+        }
+        self.engine.path = path;
+        if let Err(err) = settings_config::save_engine_path(&self.engine.path) {
+            self.status = format!("保存配置失败：{err}");
+            return;
+        }
+        self.services.engine.stop_stream();
+        self.last_analysis_revision = 0;
+        self.refresh_engine_after_mode_change();
+        self.status = format!("已保存引擎路径：{}", self.engine.path);
+    }
+
     fn switch_screen(&mut self, screen: Screen) {
         self.screen = screen;
+        self.input.clear();
         self.focus = match screen {
             Screen::Battle => Focus::CommandInput,
             Screen::Settings => Focus::SettingsSection(SettingsSection::Engine),
         };
+        if screen == Screen::Settings {
+            self.input.set_text(&self.engine.path);
+            self.status =
+                "在下方输入框编辑引擎路径，Enter 保存。也可使用环境变量 XIANGQI_ENGINE_PATH。".to_string();
+        }
     }
 
     fn activate_battle_button(&mut self, button: BattleButton) {
@@ -380,28 +483,15 @@ impl App {
             }
             BattleButton::QueryMode => {
                 self.game.query_mode = !self.game.query_mode;
-                self.status = format!(
-                    "查询模式：{}",
-                    if self.game.query_mode {
-                        "开启"
-                    } else {
-                        "关闭"
-                    }
-                );
+                self.refresh_engine_after_mode_change();
             }
             BattleButton::RealtimeEval => {
                 self.game.realtime_eval = !self.game.realtime_eval;
-                self.status = format!(
-                    "实时评估：{}",
-                    if self.game.realtime_eval {
-                        "开启"
-                    } else {
-                        "关闭"
-                    }
-                );
+                self.refresh_engine_after_mode_change();
             }
             BattleButton::NewGame => {
                 self.game.reset();
+                self.refresh_engine_after_mode_change();
                 self.status = "已重置到初始局面。".to_string();
             }
             BattleButton::Undo => self.status = "悔棋逻辑待接入。".to_string(),

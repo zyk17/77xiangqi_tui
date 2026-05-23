@@ -8,7 +8,7 @@ pub use book::BookService;
 pub use command::{CommandService, CoordinateMove, ParsedCommand, SlashCommand};
 pub use engine::EngineService;
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default)]
 pub struct AppServices {
     pub command: CommandService,
     pub analysis: AnalysisService,

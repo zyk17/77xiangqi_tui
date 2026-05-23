@@ -1,4 +1,14 @@
-use crate::{book::BookResponse, engine::AnalysisSnapshot};
+use crate::{
+    book::BookResponse,
+    engine::{
+        uci_ucci_engine::{
+            info_state::uci_xiangqi_best_ready,
+            ui_helpers::{move_human_from_fen, red_black_winrate_pct_from_wdl},
+        },
+        AnalysisSnapshot, EngineAnalysisStore, EngineAnalyzeResult,
+    },
+    game::BoardArrow,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AnalysisService;
@@ -28,5 +38,155 @@ impl AnalysisService {
             .filter_map(|candidate| candidate.move_uci.clone())
             .take(16)
             .collect();
+    }
+
+    /// 将流式引擎快照写入 `D` 区；查询模式下同步待走箭头。
+    pub fn apply_engine_store(
+        &self,
+        snapshot: &mut AnalysisSnapshot,
+        store: &EngineAnalysisStore,
+        query_mode: bool,
+        pending_arrow: &mut Option<BoardArrow>,
+    ) {
+        self.apply_engine_result(snapshot, &store.result, &store.fen);
+        if query_mode {
+            if let Some(arrow) = board_arrow_from_uci(&store.result.best_move) {
+                *pending_arrow = Some(arrow);
+            }
+        }
+    }
+
+    pub fn apply_engine_result(
+        &self,
+        snapshot: &mut AnalysisSnapshot,
+        result: &EngineAnalyzeResult,
+        fen: &str,
+    ) {
+        snapshot.source = "engine".to_string();
+        snapshot.depth = result.depth.unwrap_or(0).max(0) as u16;
+        snapshot.nps = result.nps.unwrap_or(0);
+        snapshot.nodes = result.nodes.unwrap_or(0);
+        snapshot.time_text = format_time_ms(result.search_time_ms);
+        snapshot.score_text = format_score(result);
+        snapshot.best_move = if uci_xiangqi_best_ready(&result.best_move) {
+            move_human_from_fen(fen, &result.best_move)
+        } else {
+            result.best_move.clone()
+        };
+        let (red, black) = red_black_winrate_pct_from_wdl(fen, result.wdl);
+        snapshot.win_rate_text = format_win_rate(red, black);
+        snapshot.pv = if result.pv.is_empty() {
+            result
+                .candidates
+                .first()
+                .map(|c| c.pv.clone())
+                .unwrap_or_default()
+        } else {
+            result.pv.clone()
+        };
+    }
+}
+
+fn format_time_ms(ms: Option<u64>) -> String {
+    match ms {
+        Some(v) if v >= 1000 => format!("{:.2}s", v as f64 / 1000.0),
+        Some(v) => format!("{v}ms"),
+        None => "--".to_string(),
+    }
+}
+
+fn format_score(result: &EngineAnalyzeResult) -> String {
+    if let Some(mate) = result.mate {
+        return format!("M{mate}");
+    }
+    if let Some(cp) = result.score_cp {
+        let pawns = cp as f64 / 100.0;
+        if pawns > 0.0 {
+            return format!("+{pawns:.2}");
+        }
+        return format!("{pawns:.2}");
+    }
+    if result.score.abs() < f64::EPSILON {
+        return "0".to_string();
+    }
+    if result.score > 0.0 {
+        format!("+{:.2}", result.score)
+    } else {
+        format!("{:.2}", result.score)
+    }
+}
+
+fn format_win_rate(red: Option<f64>, black: Option<f64>) -> String {
+    match (red, black) {
+        (Some(r), Some(b)) => format!("{r:.1}%/{b:.1}%"),
+        _ => "--/--".to_string(),
+    }
+}
+
+fn board_arrow_from_uci(uci: &str) -> Option<BoardArrow> {
+    if !uci_xiangqi_best_ready(uci) {
+        return None;
+    }
+    let b = uci.as_bytes();
+    Some(BoardArrow {
+        from_file: b[0] - b'a',
+        from_rank: b[1] - b'0',
+        to_file: b[2] - b'a',
+        to_rank: b[3] - b'0',
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::analysis_types::EngineAnalyzeResult;
+
+    #[test]
+    fn format_score_mate_and_cp() {
+        let mate = EngineAnalyzeResult {
+            mate: Some(3),
+            ..EngineAnalyzeResult::default()
+        };
+        assert_eq!(format_score(&mate), "M3");
+
+        let cp = EngineAnalyzeResult {
+            score_cp: Some(45),
+            ..EngineAnalyzeResult::default()
+        };
+        assert_eq!(format_score(&cp), "+0.45");
+    }
+
+    #[test]
+    fn board_arrow_parses_valid_uci() {
+        let arrow = board_arrow_from_uci("h2e2").expect("arrow");
+        assert_eq!(arrow.from_file, 7);
+        assert_eq!(arrow.from_rank, 2);
+        assert_eq!(arrow.to_file, 4);
+        assert_eq!(arrow.to_rank, 2);
+        assert!(board_arrow_from_uci("stub_move").is_none());
+    }
+
+    #[test]
+    fn apply_engine_result_fills_snapshot_fields() {
+        let svc = AnalysisService;
+        let mut snap = AnalysisSnapshot::idle();
+        let result = EngineAnalyzeResult {
+            best_move: "h2e2".to_string(),
+            depth: Some(18),
+            nps: Some(1_200_000),
+            nodes: Some(500_000),
+            search_time_ms: Some(1500),
+            score_cp: Some(20),
+            pv: vec!["h2e2".to_string(), "h7e7".to_string()],
+            wdl: Some([500, 400, 100]),
+            ..EngineAnalyzeResult::default()
+        };
+        let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1";
+        svc.apply_engine_result(&mut snap, &result, fen);
+        assert_eq!(snap.source, "engine");
+        assert_eq!(snap.depth, 18);
+        assert_eq!(snap.time_text, "1.50s");
+        assert_eq!(snap.best_move, "h2e2");
+        assert!(!snap.win_rate_text.starts_with("--"));
     }
 }
