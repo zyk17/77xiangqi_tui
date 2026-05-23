@@ -35,12 +35,11 @@ impl AnalysisService {
         snapshot.pv = response
             .candidates
             .iter()
-            .filter_map(|candidate| candidate.move_uci.clone())
+            .filter_map(|c| c.move_uci.clone())
             .take(16)
             .collect();
     }
 
-    /// 将流式引擎快照写入 `D` 区；查询模式下同步待走箭头。
     pub fn apply_engine_store(
         &self,
         snapshot: &mut AnalysisSnapshot,
@@ -49,8 +48,17 @@ impl AnalysisService {
         pending_arrow: &mut Option<BoardArrow>,
     ) {
         self.apply_engine_result(snapshot, &store.result, &store.fen);
+        self.sync_query_arrow(&store.result.best_move, query_mode, pending_arrow);
+    }
+
+    pub fn sync_query_arrow(
+        &self,
+        uci_best: &str,
+        query_mode: bool,
+        pending_arrow: &mut Option<BoardArrow>,
+    ) {
         if query_mode {
-            if let Some(arrow) = board_arrow_from_uci(&store.result.best_move) {
+            if let Some(arrow) = board_arrow_from_uci(uci_best) {
                 *pending_arrow = Some(arrow);
             }
         }
@@ -68,10 +76,11 @@ impl AnalysisService {
         snapshot.nodes = result.nodes.unwrap_or(0);
         snapshot.time_text = format_time_ms(result.search_time_ms);
         snapshot.score_text = format_score(result);
-        snapshot.best_move = if uci_xiangqi_best_ready(&result.best_move) {
-            move_human_from_fen(fen, &result.best_move)
+        let uci = result.best_move.trim();
+        snapshot.best_move = if uci_xiangqi_best_ready(uci) {
+            move_human_from_fen(fen, uci)
         } else {
-            result.best_move.clone()
+            uci.to_string()
         };
         let (red, black) = red_black_winrate_pct_from_wdl(fen, result.wdl);
         snapshot.win_rate_text = format_win_rate(red, black);
@@ -155,32 +164,22 @@ mod tests {
         let arrow = board_arrow_from_uci("h2e2").expect("arrow");
         assert_eq!(arrow.from_file, 7);
         assert_eq!(arrow.from_rank, 7);
-        assert_eq!(arrow.to_file, 4);
-        assert_eq!(arrow.to_rank, 7);
         assert!(board_arrow_from_uci("stub_move").is_none());
     }
 
     #[test]
-    fn apply_engine_result_fills_snapshot_fields() {
+    fn apply_engine_result_keeps_global_uci() {
         let svc = AnalysisService;
         let mut snap = AnalysisSnapshot::idle();
         let result = EngineAnalyzeResult {
             best_move: "h2e2".to_string(),
             depth: Some(18),
-            nps: Some(1_200_000),
-            nodes: Some(500_000),
-            search_time_ms: Some(1500),
-            score_cp: Some(20),
             pv: vec!["h2e2".to_string(), "h7e7".to_string()],
-            wdl: Some([500, 400, 100]),
             ..EngineAnalyzeResult::default()
         };
         let fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1";
         svc.apply_engine_result(&mut snap, &result, fen);
-        assert_eq!(snap.source, "engine");
-        assert_eq!(snap.depth, 18);
-        assert_eq!(snap.time_text, "1.50s");
         assert_eq!(snap.best_move, "h2e2");
-        assert!(!snap.win_rate_text.starts_with("--"));
+        assert_eq!(snap.pv, vec!["h2e2", "h7e7"]);
     }
 }

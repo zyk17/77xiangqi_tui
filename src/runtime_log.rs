@@ -6,7 +6,20 @@ use std::sync::{Mutex, OnceLock};
 static LOG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub fn debug(message: impl AsRef<str>) {
+    if !debug_enabled() {
+        return;
+    }
     write_log("debug", message.as_ref());
+}
+
+/// 设置环境变量 `XIANGQI_TUI_DEBUG=1` 时写入 `logs/runtime.log`。
+fn debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("XIANGQI_TUI_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
 }
 
 pub fn info(message: impl AsRef<str>) {

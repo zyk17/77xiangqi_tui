@@ -57,6 +57,11 @@ impl GameService {
         }
     }
 
+    pub fn sync_view_after_rotate(game: &mut GameState) {
+        Self::sync_last_move_from_history(game);
+        game.selected_cell = None;
+    }
+
     pub fn reset(game: &mut GameState) {
         game.history = crate::game::MoveHistory::new_game();
         game.board = Board90::startpos();
@@ -124,24 +129,27 @@ impl GameService {
         if !game.history.at_head() {
             return None;
         }
-        if game.board.is_empty(file, rank) {
-            let Some((from_file, from_rank)) = game.selected_cell else {
+
+        let is_own = !game.board.is_empty(file, rank)
+            && game.board.is_red_piece(file, rank) == game.side_to_move.is_red();
+
+        if let Some((from_file, from_rank)) = game.selected_cell {
+            if is_own {
+                game.selected_cell = Some((file, rank));
                 return None;
-            };
-            let uci = uci_from_coords(
+            }
+            game.selected_cell = None;
+            return Some(uci_from_coords(
                 from_rank as usize,
                 from_file as usize,
                 rank as usize,
                 file as usize,
-            );
-            game.selected_cell = None;
-            return Some(uci);
+            ));
         }
-        if game.board.is_red_piece(file, rank) != game.side_to_move.is_red() {
-            game.selected_cell = None;
-            return None;
+
+        if is_own {
+            game.selected_cell = Some((file, rank));
         }
-        game.selected_cell = Some((file, rank));
         None
     }
 }
@@ -198,6 +206,32 @@ mod tests {
     fn load_invalid_fen_fails() {
         let mut game = GameState::default();
         assert!(GameService::load_fen(&mut game, "not-a-fen").is_err());
+    }
+
+    #[test]
+    fn apply_uci_same_when_rotated() {
+        let mut game = GameState::default();
+        game.rotated = true;
+        GameService::apply_uci(&mut game, "h2e2").expect("move");
+        assert_eq!(game.history.last_move_uci_at_view(), Some("h2e2"));
+        assert_eq!(game.last_move_uci.as_deref(), Some("h2e2"));
+    }
+
+    #[test]
+    fn click_enemy_with_selection_generates_capture_uci() {
+        let mut game = GameState::default();
+        game.selected_cell = Some((7, 7));
+        let uci = GameService::try_click_cell(&mut game, 4, 2).expect("capture uci");
+        assert_eq!(uci, "h2e7");
+        assert!(game.selected_cell.is_none());
+    }
+
+    #[test]
+    fn click_own_piece_reselects() {
+        let mut game = GameState::default();
+        GameService::try_click_cell(&mut game, 7, 7);
+        GameService::try_click_cell(&mut game, 0, 9);
+        assert_eq!(game.selected_cell, Some((0, 9)));
     }
 
     #[test]

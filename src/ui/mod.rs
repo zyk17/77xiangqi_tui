@@ -1,9 +1,11 @@
+mod board;
+mod hit;
+mod layout;
 mod style;
 
 use ratatui::{
     layout::Alignment,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
@@ -11,19 +13,17 @@ use ratatui::{
 
 use self::style::{
     accent, active_flag, border_active, border_focused, border_normal, button_idle, button_on,
-    cursor_cell, highlight, input_prompt, piece_black, piece_red, suggestion, tab_active, tab_idle,
+    cursor_cell, highlight, input_prompt, suggestion, tab_active, tab_idle,
     text as text_style, text_bold, text_dim,
 };
 
-use crate::{
-    app::{App, BattleButton, Focus, Screen, SettingsSection, TopTab},
-    game::BoardArrow,
-    xiangqi::{axis_label_from_internal_rank, Board90},
-};
+use crate::app::{App, BattleButton, Focus, Screen, SettingsSection, TopTab};
+
+pub use layout::UiRegions;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOutput {
-    pub board_area: Rect,
+    pub regions: UiRegions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,11 +53,11 @@ pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
         .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(3)])
         .split(frame.area());
 
-    render_tabs(frame, root[0], app);
+    let tabs = render_tabs(frame, root[0], app);
 
-    let board_area = match app.screen {
-        Screen::Battle => render_battle(frame, root[1], app),
-        Screen::Settings => render_settings(frame, root[1], app),
+    let screen = match app.screen {
+        Screen::Battle => layout::ScreenRegions::Battle(render_battle(frame, root[1], app)),
+        Screen::Settings => layout::ScreenRegions::Settings(render_settings(frame, root[1], app)),
     };
 
     frame.render_widget(
@@ -68,59 +68,21 @@ pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
         root[2],
     );
 
-    RenderOutput { board_area }
+    RenderOutput {
+        regions: UiRegions { tabs, screen },
+    }
 }
 
 pub fn hit_test(
     column: u16,
     row: u16,
-    board_area: Option<Rect>,
-    rotated: bool,
+    screen: Screen,
+    regions: &UiRegions,
 ) -> Option<HitTarget> {
-    if row <= 2 {
-        return if column < 40 {
-            Some(HitTarget::TopTab(TopTab::Battle))
-        } else {
-            Some(HitTarget::TopTab(TopTab::Settings))
-        };
-    }
-
-    if row >= 23 {
-        return Some(HitTarget::CommandInput);
-    }
-
-    if (4..=15).contains(&row) && (68..=120).contains(&column) {
-        let row_index = ((row - 4) / 3) as usize;
-        let col_index = ((column - 68) / 17) as usize;
-        return BUTTON_ROWS
-            .get(row_index)
-            .and_then(|button_row| button_row.get(col_index))
-            .and_then(|button| *button)
-            .map(HitTarget::BattleButton);
-    }
-
-    if (4..=16).contains(&row) && (4..=115).contains(&column) {
-        return if row <= 10 {
-            Some(HitTarget::SettingsSection(SettingsSection::Engine))
-        } else {
-            Some(HitTarget::SettingsSection(SettingsSection::OpeningBook))
-        };
-    }
-
-    let area = board_area?;
-    if column < area.x || column >= area.right() || row < area.y || row >= area.bottom() {
-        return None;
-    }
-
-    let local_x = column.saturating_sub(area.x + 4);
-    let local_y = row.saturating_sub(area.y + 2);
-    let col = (local_x / 4).min(8) as u8;
-    let screen_row = (local_y / 2).min(9) as u8;
-    let (file, rank) = display_cell_to_internal(col, screen_row, rotated);
-    Some(HitTarget::BoardCell(file, rank))
+    hit::hit_test(column, row, screen, regions)
 }
 
-fn render_tabs(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn render_tabs(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::TabRegions {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -137,18 +99,24 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, app: &App) {
         };
         frame.render_widget(tab_widget(title, active, focused), chunks[index]);
     }
+    layout::TabRegions {
+        battle: chunks[0],
+        settings: chunks[1],
+    }
 }
 
-fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
+fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::BattleRegions {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(16), Constraint::Length(5)])
+        .constraints([Constraint::Min(0), Constraint::Length(5)])
         .split(area);
 
+    // 棋盘占对弈区大部分宽度（接近用户红框），右侧按钮/评估。
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(68), Constraint::Min(42)])
+        .constraints([Constraint::Percentage(72), Constraint::Min(34)])
         .split(rows[0]);
+    let board_area = columns[0];
     // 按钮区固定 12 行；D 区占剩余。勿用 Min(16) 挤压按钮区，否则评估面板会盖住第 3、4 行按钮。
     let right = Layout::default()
         .direction(Direction::Vertical)
@@ -160,22 +128,28 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
         columns[1], right[0], right[1]
     ));
 
-    let board_area = render_board(
+    let board = board::render_grid_board(
         frame,
-        columns[0],
+        board_area,
         &app.game.board,
         app.game.rotated,
         app.game.last_move_arrow,
         app.game.pending_arrow,
         app.game.selected_cell,
     );
-    render_buttons(frame, right[0], app);
+    let (buttons, button_count) = render_buttons(frame, right[0], app);
     render_eval_panel(frame, right[1], app);
     render_command_input(frame, rows[1], app);
-    board_area
+    layout::BattleRegions {
+        board,
+        board_rotated: app.game.rotated,
+        command_input: rows[1],
+        buttons,
+        button_count,
+    }
 }
 
-fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
+fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::SettingsRegions {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(5)])
@@ -235,109 +209,11 @@ fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
         chunks[2],
     );
     render_command_input(frame, rows[1], app);
-    Rect::default()
-}
-
-fn display_cell_to_internal(col: u8, screen_row: u8, rotated: bool) -> (u8, u8) {
-    let internal_rank = if rotated {
-        9 - screen_row
-    } else {
-        screen_row
-    };
-    let internal_file = if rotated { 8 - col } else { col };
-    (internal_file, internal_rank)
-}
-
-fn render_board(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    board: &Board90,
-    rotated: bool,
-    last_arrow: Option<BoardArrow>,
-    pending_arrow: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
-) -> Rect {
-    let mut lines = Vec::with_capacity(25);
-    lines.push(Line::from(grid_border('┌', '┬', '┐')));
-    for screen_row in 0..10_u8 {
-        let internal_rank = if rotated {
-            9 - screen_row
-        } else {
-            screen_row
-        };
-        let axis_rank = axis_label_from_internal_rank(internal_rank);
-        let mut spans = vec![Span::styled(format!("{:>2}", axis_rank), text_dim())];
-        spans.push(Span::raw("│"));
-        for file in 0..9_u8 {
-            let (internal_file, internal_rank) =
-                display_cell_to_internal(file, screen_row, rotated);
-            let piece = board.display_at(internal_file, internal_rank);
-            let cell_style = cell_highlight_style(
-                internal_file,
-                internal_rank,
-                piece,
-                last_arrow,
-                pending_arrow,
-                selected,
-            );
-            spans.push(Span::styled(format!(" {} ", piece), cell_style));
-            if file != 8 {
-                spans.push(Span::raw("│"));
-            }
-        }
-        spans.push(Span::raw("│"));
-        lines.push(Line::from(spans));
-        if screen_row != 9 {
-            lines.push(Line::from(grid_border('├', '┼', '┤')));
-        }
+    layout::SettingsRegions {
+        engine: chunks[0],
+        book: chunks[1],
+        command_input: rows[1],
     }
-    lines.push(Line::from(grid_border('└', '┴', '┘')));
-    lines.push(Line::from(Span::styled(
-        "    a   b   c   d   e   f   g   h   i",
-        text_dim(),
-    )));
-    let title = if pending_arrow.is_some() {
-        "A 棋盘 · 提示"
-    } else {
-        "A 棋盘"
-    };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(text_style())
-            .block(block(title))
-            .wrap(Wrap { trim: false }),
-        area,
-    );
-    area
-}
-
-fn cell_highlight_style(
-    file: u8,
-    rank: u8,
-    piece: char,
-    last: Option<BoardArrow>,
-    pending: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
-) -> Style {
-    let mut style = piece_style(piece);
-    if selected == Some((file, rank)) {
-        style = style.bg(Color::DarkGray);
-    }
-    if let Some(a) = last {
-        if a.from_file == file && a.from_rank == rank {
-            style = style.bg(Color::Rgb(40, 40, 80));
-        } else if a.to_file == file && a.to_rank == rank {
-            style = style.bg(Color::Rgb(40, 80, 40));
-        }
-    }
-    if let Some(a) = pending {
-        if a.from_file == file && a.from_rank == rank {
-            style = style.bg(Color::Rgb(80, 60, 20));
-        } else if a.to_file == file && a.to_rank == rank {
-            style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
-        }
-    }
-    style
 }
 
 fn render_command_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -371,7 +247,11 @@ fn render_command_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn render_buttons(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn render_buttons(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &App,
+) -> ([(BattleButton, Rect); 11], usize) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -381,6 +261,9 @@ fn render_buttons(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Constraint::Length(BUTTON_ROW_HEIGHT),
         ])
         .split(area);
+
+    let mut buttons = [(BattleButton::NewGame, Rect::default()); 11];
+    let mut button_count = 0usize;
 
     for (row_area, row_buttons) in rows.iter().zip(BUTTON_ROWS.iter()) {
         let cols = Layout::default()
@@ -393,11 +276,18 @@ fn render_buttons(frame: &mut Frame<'_>, area: Rect, app: &App) {
             .split(*row_area);
         for (index, button) in row_buttons.iter().enumerate() {
             match button {
-                Some(button) => render_button(frame, cols[index], *button, app),
+                Some(button) => {
+                    render_button(frame, cols[index], *button, app);
+                    if button_count < buttons.len() {
+                        buttons[button_count] = (*button, cols[index]);
+                        button_count += 1;
+                    }
+                }
                 None => frame.render_widget(Block::default(), cols[index]),
             }
         }
     }
+    (buttons, button_count)
 }
 
 fn render_button(frame: &mut Frame<'_>, area: Rect, button: BattleButton, app: &App) {
@@ -553,30 +443,6 @@ fn render_input_line(app: &App) -> Line<'static> {
     Line::from(spans)
 }
 
-fn grid_border(left: char, middle: char, right: char) -> String {
-    let mut line = String::from("  ");
-    line.push(left);
-    for file in 0..9 {
-        line.push_str("───");
-        if file == 8 {
-            line.push(right);
-        } else {
-            line.push(middle);
-        }
-    }
-    line
-}
-
-fn piece_style(piece: char) -> Style {
-    if piece.is_ascii_uppercase() {
-        piece_red()
-    } else if piece.is_ascii_lowercase() {
-        piece_black()
-    } else {
-        text_dim()
-    }
-}
-
 fn display_or_placeholder(value: &str) -> String {
     if value.is_empty() {
         "<未设置>".to_string()
@@ -661,5 +527,41 @@ mod render_tests {
             }),
             "D panel should start below 12-line button block, got:\n{dump}"
         );
+    }
+
+    #[test]
+    fn hit_board_cell_a0_matches_layout() {
+        use crate::app::Screen;
+        use crate::ui::board::cell_hit_point_in_grid;
+
+        let backend = TestBackend::new(120, 40);
+        let mut term = Terminal::new(backend).expect("terminal");
+        let app = App::default();
+        let mut regions = None;
+        term.draw(|f| {
+            regions = Some(render(f, &app).regions);
+        })
+        .expect("draw");
+        let regions = regions.expect("regions");
+        let battle = regions.battle().expect("battle");
+        let (col, row) = cell_hit_point_in_grid(battle.board, 0, 9).expect("a0 center");
+        let hit = super::hit_test(col, row, Screen::Battle, &regions).expect("hit");
+        assert_eq!(hit, super::HitTarget::BoardCell(0, 9));
+
+        let app_rot = {
+            let mut a = App::default();
+            a.game.rotated = true;
+            a
+        };
+        let mut regions = None;
+        term.draw(|f| {
+            regions = Some(render(f, &app_rot).regions);
+        })
+        .expect("draw rotated");
+        let regions = regions.expect("regions");
+        let battle = regions.battle().expect("battle");
+        let (col, row) = cell_hit_point_in_grid(battle.board, 0, 9).expect("a0 center");
+        let hit = super::hit_test(col, row, Screen::Battle, &regions).expect("hit");
+        assert_eq!(hit, super::HitTarget::BoardCell(8, 0));
     }
 }

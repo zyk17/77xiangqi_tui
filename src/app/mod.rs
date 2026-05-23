@@ -11,7 +11,7 @@ use crate::{
     game::GameState,
     input::InputState,
     service::{AppServices, CoordinateMove, GameService, ParsedCommand, SlashCommand},
-    xiangqi::Side,
+    xiangqi::{Side, uci_cell_label},
     settings_config,
     ui::{self, HitTarget},
 };
@@ -137,7 +137,7 @@ pub struct App {
     pub book: BookConfig,
     pub status: String,
     pub input: InputState,
-    pub board_area: Option<Rect>,
+    pub ui_regions: Option<ui::UiRegions>,
     pub services: AppServices,
     last_analysis_revision: u64,
 }
@@ -160,7 +160,7 @@ impl Default for App {
             book: BookConfig::default(),
             status,
             input: InputState::default(),
-            board_area: None,
+            ui_regions: None,
             services: AppServices::default(),
             last_analysis_revision: 0,
         }
@@ -173,7 +173,7 @@ impl App {
             self.tick_engine_stream();
             terminal.draw(|frame| {
                 let output = ui::render(frame, self);
-                self.board_area = Some(output.board_area);
+                self.ui_regions = Some(output.regions);
             })?;
 
             if !event::poll(TICK_RATE)? {
@@ -219,6 +219,35 @@ impl App {
         self.services.analysis.apply_engine_store(
             &mut self.game.analysis,
             &store,
+            self.game.query_mode,
+            &mut self.game.pending_arrow,
+        );
+    }
+
+    fn refresh_view_after_rotate(&mut self) {
+        GameService::sync_view_after_rotate(&mut self.game);
+        if self.game.analysis.source != "engine" {
+            return;
+        }
+        if !(self.game.realtime_eval || self.game.query_mode) {
+            return;
+        }
+        let fen = GameService::engine_fen(&self.game);
+        let store = self.services.engine.current_store();
+        if store.fen != fen {
+            return;
+        }
+        let best = store.result.best_move.trim();
+        if best.is_empty() || best == "stub_move" {
+            return;
+        }
+        self.services.analysis.apply_engine_result(
+            &mut self.game.analysis,
+            &store.result,
+            &store.fen,
+        );
+        self.services.analysis.sync_query_arrow(
+            best,
             self.game.query_mode,
             &mut self.game.pending_arrow,
         );
@@ -272,12 +301,10 @@ impl App {
             return;
         }
 
-        if let Some(hit) = ui::hit_test(
-            mouse.column,
-            mouse.row,
-            self.board_area,
-            self.game.rotated,
-        ) {
+        let Some(regions) = self.ui_regions else {
+            return;
+        };
+        if let Some(hit) = ui::hit_test(mouse.column, mouse.row, self.screen, &regions) {
             match hit {
                 HitTarget::TopTab(tab) => self.switch_screen(match tab {
                     TopTab::Battle => Screen::Battle,
@@ -307,9 +334,8 @@ impl App {
                         self.apply_uci_move(&uci);
                     } else if self.game.selected_cell == Some((file, rank)) {
                         self.status = format!(
-                            "已选 {}{}，请点目标格。",
-                            (b'a' + file) as char,
-                            9 - rank
+                            "已选 {}，请点目标格。",
+                            uci_cell_label(file, rank)
                         );
                     } else if !self.game.history.at_head() {
                         self.status = "浏览历史中，请 /next 回到最新步再走子。".to_string();
@@ -400,7 +426,12 @@ impl App {
                     Side::Red => "红",
                     Side::Black => "黑",
                 };
-                self.status = format!("已走 {uci}，轮到{side}方。");
+                let shown = self
+                    .game
+                    .last_move_uci
+                    .as_deref()
+                    .unwrap_or(uci);
+                self.status = format!("已走 {shown}，轮到{side}方。");
             }
             Err(err) => self.status = err.message(),
         }
@@ -469,6 +500,7 @@ impl App {
             }
             SlashCommand::Rotate => {
                 self.game.rotated = !self.game.rotated;
+                self.refresh_view_after_rotate();
                 self.status = format!(
                     "棋盘方向：{}",
                     if self.game.rotated {
@@ -580,6 +612,7 @@ impl App {
             }
             BattleButton::RotateBoard => {
                 self.game.rotated = !self.game.rotated;
+                self.refresh_view_after_rotate();
                 self.status = format!(
                     "棋盘方向：{}",
                     if self.game.rotated {

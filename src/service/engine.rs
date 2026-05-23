@@ -22,6 +22,10 @@ impl EngineService {
         self.stream.stop_stream();
     }
 
+    pub fn current_store(&self) -> EngineAnalysisStore {
+        self.stream.clone_store()
+    }
+
     pub fn snapshot_if_newer(&self, last_revision: u64) -> Option<(EngineAnalysisStore, u64)> {
         let revision = self.stream.store_revision();
         if revision == last_revision {
