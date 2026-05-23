@@ -30,6 +30,8 @@ pub struct GameState {
     pub pending_arrow: Option<BoardArrow>,
     pub selected_cell: Option<(u8, u8)>,
     pub analysis: AnalysisSnapshot,
+    /// 本盘终局说明（将死/困毙等）；非空时停模式/引擎/自动走子，可浏览棋谱，不会自动新局。
+    pub game_over: Option<String>,
 }
 
 impl Default for GameState {
@@ -48,6 +50,13 @@ impl Default for GameState {
             pending_arrow: None,
             selected_cell: None,
             analysis: AnalysisSnapshot::idle(),
+            game_over: None,
         }
+    }
+}
+
+impl GameState {
+    pub fn is_game_over(&self) -> bool {
+        self.game_over.is_some()
     }
 }

@@ -11,12 +11,14 @@ pub enum SlashCommand {
     Eval,
     CopyFen,
     PasteFen,
+    Stop,
+    Help,
     Exit,
     Quit,
 }
 
 impl SlashCommand {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::New,
         Self::Undo,
         Self::Prev,
@@ -28,6 +30,8 @@ impl SlashCommand {
         Self::Eval,
         Self::CopyFen,
         Self::PasteFen,
+        Self::Stop,
+        Self::Help,
         Self::Exit,
         Self::Quit,
     ];
@@ -45,6 +49,8 @@ impl SlashCommand {
             Self::Eval => "/eval",
             Self::CopyFen => "/copyfen",
             Self::PasteFen => "/pastefen",
+            Self::Stop => "/stop",
+            Self::Help => "/help",
             Self::Exit => "/exit",
             Self::Quit => "/quit",
         }
@@ -52,7 +58,7 @@ impl SlashCommand {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::New => "新游戏",
+            Self::New => "停止并开新棋",
             Self::Undo => "悔棋",
             Self::Prev => "上一步",
             Self::Next => "下一步",
@@ -61,8 +67,10 @@ impl SlashCommand {
             Self::Query => "切换查询模式",
             Self::Rotate => "旋转棋盘",
             Self::Eval => "切换实时评估",
-            Self::CopyFen => "复制FEN",
-            Self::PasteFen => "粘贴FEN",
+            Self::CopyFen => "复制 FEN 到剪贴板",
+            Self::PasteFen => "粘贴 FEN",
+            Self::Stop => "停止模式、引擎流与自动走子",
+            Self::Help => "操作说明",
             Self::Exit | Self::Quit => "退出软件",
         }
     }

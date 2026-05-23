@@ -17,6 +17,7 @@ too_many_lines = "allow"
 
 [dependencies]
 anyhow = "1.0"
+arboard = "3"
 crossterm = "0.29"
 crossbeam-channel = "0.5"
 getrandom = "0.3"

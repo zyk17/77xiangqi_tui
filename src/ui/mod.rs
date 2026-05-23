@@ -1,5 +1,6 @@
 mod board;
 mod format;
+mod help;
 mod hit;
 mod layout;
 pub mod settings_form;
@@ -88,6 +89,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
             .wrap(Wrap { trim: true }),
         root[2],
     );
+
+    if app.help_open {
+        help::render_help_overlay(frame, frame.area());
+    }
 
     RenderOutput {
         regions: UiRegions { tabs, screen },

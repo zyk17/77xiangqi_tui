@@ -53,6 +53,8 @@
   - `/rotate`
   - `/copyfen`
   - `/pastefen`
+  - `/stop`
+  - `/help`
   - `/eval`
   - `/exit`
   - `/quit`

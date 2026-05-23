@@ -1,5 +1,6 @@
 mod app;
 mod book;
+mod clipboard;
 mod engine;
 mod game;
 mod input;

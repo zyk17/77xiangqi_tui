@@ -473,7 +473,7 @@ fn cell_spans(
     let right_w = m.cell_w.saturating_sub(m.piece_pad_w + m.piece_w);
     let mut spans = Vec::with_capacity(3);
     if m.piece_pad_w > 0 {
-        spans.push(Span::raw(" ".repeat(m.piece_pad_w)));
+        spans.push(Span::styled(" ".repeat(m.piece_pad_w), style));
     }
     let piece_text = if show_glyph {
         piece_label(cell)
@@ -484,7 +484,7 @@ fn cell_spans(
     };
     spans.push(Span::styled(piece_text, style));
     if right_w > 0 {
-        spans.push(Span::raw(" ".repeat(right_w)));
+        spans.push(Span::styled(" ".repeat(right_w), style));
     }
     spans
 }

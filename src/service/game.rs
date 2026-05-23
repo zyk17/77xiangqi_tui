@@ -1,13 +1,15 @@
 use crate::engine::{AnalysisSnapshot, pv_ui::truncate_engine_pv_for_ui};
 use crate::game::{BoardArrow, GameState};
 use crate::xiangqi::{
-    Board90, STARTPOS_FEN, Side, parse_uci_coords, try_apply_fully_legal_uci, uci_from_coords,
+    Board90, STARTPOS_FEN, Side, game_over_message, parse_uci_coords, try_apply_fully_legal_uci,
+    uci_from_coords,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyMoveError {
     IllegalMove(String),
     BrowseOnly,
+    GameOver,
 }
 
 impl ApplyMoveError {
@@ -15,6 +17,7 @@ impl ApplyMoveError {
         match self {
             Self::IllegalMove(uci) => format!("非法着法：{uci}。"),
             Self::BrowseOnly => "正在浏览历史，请 /next 回到最新步或走新着以截断。".to_string(),
+            Self::GameOver => "对局已结束，请点「新局」或 /new 重新开始。".to_string(),
         }
     }
 }
@@ -25,6 +28,9 @@ pub struct GameService;
 impl GameService {
     pub fn apply_uci(game: &mut GameState, uci: &str) -> Result<(), ApplyMoveError> {
         let uci = uci.trim().to_ascii_lowercase();
+        if game.is_game_over() {
+            return Err(ApplyMoveError::GameOver);
+        }
         if !game.history.at_head() {
             return Err(ApplyMoveError::BrowseOnly);
         }
@@ -47,6 +53,15 @@ impl GameService {
         }
         Self::sync_last_move_from_history(game);
         Self::sync_pv_for_view(game);
+        Self::refresh_game_over(game);
+    }
+
+    /// 仅在「最新步」重算终局；浏览历史时保留已有终局标记（本盘已结束仍可 ↑↓ 看棋谱）。
+    pub fn refresh_game_over(game: &mut GameState) {
+        if !game.history.at_head() {
+            return;
+        }
+        game.game_over = game_over_message(&game.board, game.side_to_move);
     }
 
     fn sync_pv_for_view(game: &mut GameState) {
@@ -83,6 +98,15 @@ impl GameService {
             source: STARTPOS_FEN.to_string(),
             ..AnalysisSnapshot::idle()
         };
+        game.game_over = None;
+    }
+
+    #[cfg(test)]
+    fn push_move_for_test(game: &mut GameState, uci: &str) {
+        let fen = game.history.current_fen();
+        let next = try_apply_fully_legal_uci(fen, uci).expect("legal");
+        game.history.push_move(next, uci.to_string(), Vec::new());
+        Self::sync_from_history(game);
     }
 
     pub fn load_fen(game: &mut GameState, fen: &str) -> Result<(), String> {
@@ -97,6 +121,7 @@ impl GameService {
         game.last_move_arrow = None;
         game.pending_arrow = None;
         game.selected_cell = None;
+        Self::refresh_game_over(game);
         Ok(())
     }
 
@@ -135,7 +160,7 @@ impl GameService {
     }
 
     pub fn try_click_cell(game: &mut GameState, file: u8, rank: u8) -> Option<String> {
-        if !game.history.at_head() {
+        if game.is_game_over() || !game.history.at_head() {
             return None;
         }
 
@@ -221,6 +246,16 @@ mod tests {
     }
 
     #[test]
+    fn load_fen_refreshes_game_over() {
+        let mut game = GameState {
+            game_over: Some("测试终局".to_string()),
+            ..GameState::default()
+        };
+        GameService::load_fen(&mut game, STARTPOS_FEN).expect("fen");
+        assert!(game.game_over.is_none());
+    }
+
+    #[test]
     fn apply_uci_same_when_rotated() {
         let mut game = GameState {
             rotated: true,
@@ -265,5 +300,17 @@ mod tests {
         GameService::apply_uci(&mut game, "h2e2").expect("move");
         GameService::reset(&mut game);
         assert_eq!(game.analysis.source, STARTPOS_FEN);
+    }
+
+    #[test]
+    fn game_over_persists_while_browsing_history() {
+        let mut game = GameState::default();
+        GameService::push_move_for_test(&mut game, "h2e2");
+        game.game_over = Some("测试终局".to_string());
+        assert!(game.history.at_head());
+        assert!(game.history.go_prev());
+        assert!(!game.history.at_head());
+        GameService::refresh_game_over(&mut game);
+        assert_eq!(game.game_over.as_deref(), Some("测试终局"));
     }
 }

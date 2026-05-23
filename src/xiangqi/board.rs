@@ -72,6 +72,15 @@ impl Board90 {
         self.piece_side(file, rank) == Some(side)
     }
 
+    pub fn has_king(&self, side_red: bool) -> bool {
+        let king = if side_red { 5u8 } else { 13u8 };
+        self.cells.contains(&king)
+    }
+
+    pub fn in_check(&self, side: Side) -> bool {
+        self.side_in_check(side.is_red())
+    }
+
     pub fn from_fen(fen: &str) -> Option<Self> {
         Self::from_fen_with_side(fen).map(|(b, _)| b)
     }

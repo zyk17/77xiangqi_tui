@@ -48,7 +48,7 @@ pub fn should_try_book_for_autoplay(game: &GameState, cfg: &BookConfig) -> bool 
 }
 
 pub fn ai_enabled_for_side(game: &GameState) -> bool {
-    if !game.history.at_head() {
+    if game.is_game_over() || !game.history.at_head() {
         return false;
     }
     match game.side_to_move {
