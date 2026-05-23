@@ -1,0 +1,18 @@
+[package]
+name = "xiangqi_tui"
+version = "0.1.0"
+edition = "2024"
+description = "77象棋 TUI 应用"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+crossterm = "0.29"
+crossbeam-channel = "0.5"
+getrandom = "0.3"
+parking_lot = "0.12"
+ratatui = "0.29"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+ureq = "2"
+urlencoding = "2"
