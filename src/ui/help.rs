@@ -17,14 +17,10 @@ pub fn render_help_overlay(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(lines)
             .style(text_style())
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Span::styled(
-                        " 操作说明 — Esc 关闭 ",
-                        text_bold().add_modifier(Modifier::BOLD),
-                    )),
-            )
+            .block(Block::default().borders(Borders::ALL).title(Span::styled(
+                " 操作说明 — Esc 关闭 ",
+                text_bold().add_modifier(Modifier::BOLD),
+            )))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left),
         popup,

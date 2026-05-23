@@ -6,8 +6,7 @@ use std::thread::{self, JoinHandle};
 use crate::book::{BookConfig, BookResponse, query_opening_book};
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,9 +39,7 @@ impl std::fmt::Debug for BookQueryRuntime {
 impl BookQueryRuntime {
     pub fn is_busy(&self) -> bool {
         let guard = lock(&self.pending);
-        guard
-            .as_ref()
-            .is_some_and(|p| !p.handle.is_finished())
+        guard.as_ref().is_some_and(|p| !p.handle.is_finished())
     }
 
     pub fn pending_fen(&self) -> Option<String> {
@@ -83,11 +80,7 @@ impl BookQueryRuntime {
         let cfg = cfg.clone();
         let fen_for_thread = fen.clone();
         let handle = thread::spawn(move || query_opening_book(&fen_for_thread, None, &cfg, false));
-        *slot = Some(PendingBookQuery {
-            fen,
-            kind,
-            handle,
-        });
+        *slot = Some(PendingBookQuery { fen, kind, handle });
     }
 
     /// 查询完成后取走结果；进行中返回 `None`。

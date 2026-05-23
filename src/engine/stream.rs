@@ -184,9 +184,7 @@ impl EngineStreamRuntime {
 
     pub fn is_autoplay_running(&self) -> bool {
         let guard = lock_mutex(&self.autoplay_join);
-        guard
-            .as_ref()
-            .is_some_and(|handle| !handle.is_finished())
+        guard.as_ref().is_some_and(|handle| !handle.is_finished())
     }
 
     pub fn spawn_autoplay_once(&self, fen: &str, cfg: &EngineConfig) {

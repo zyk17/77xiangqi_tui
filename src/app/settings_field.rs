@@ -97,7 +97,9 @@ impl SettingsField {
             Self::EngineHashMb => "←/→ 微调；Enter 在 C 区输入 MB（64～8192）。",
             Self::EngineSkill => "←/→ 微调；Enter 在 C 区输入（0～20）。",
             Self::EngineMultiPv => "←/→ 微调；Enter 在 C 区输入（1～5）。",
-            Self::EngineSearchLimit => "←/→ 切换固定时间/深度/节点；Enter 输入 movetime/depth/nodes。",
+            Self::EngineSearchLimit => {
+                "←/→ 切换固定时间/深度/节点；Enter 输入 movetime/depth/nodes。"
+            }
             Self::EngineMovetimeMs => "固定时间模式用；←/→ 微调；Enter 输入毫秒。",
             Self::EngineSearchDepth => "固定深度模式用；←/→ 微调；Enter 输入层数。",
             Self::EngineSearchNodes => "固定节点模式用；←/→ 微调；Enter 输入节点数。",

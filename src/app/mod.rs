@@ -105,12 +105,8 @@ impl BattleButton {
 
     pub fn is_disabled(self, app: &App) -> bool {
         match self {
-            Self::RedAi => {
-                app.game.query_mode || (app.game.is_game_over() && !app.game.red_ai)
-            }
-            Self::BlackAi => {
-                app.game.query_mode || (app.game.is_game_over() && !app.game.black_ai)
-            }
+            Self::RedAi => app.game.query_mode || (app.game.is_game_over() && !app.game.red_ai),
+            Self::BlackAi => app.game.query_mode || (app.game.is_game_over() && !app.game.black_ai),
             Self::QueryMode => {
                 app.game.red_ai
                     || app.game.black_ai
@@ -129,7 +125,9 @@ impl BattleButton {
             return None;
         }
         Some(match self {
-            Self::RedAi | Self::BlackAi if app.game.is_game_over() => "对局已结束，请点「新局」或 /new。",
+            Self::RedAi | Self::BlackAi if app.game.is_game_over() => {
+                "对局已结束，请点「新局」或 /new。"
+            }
             Self::RedAi | Self::BlackAi => "请先关闭查询模式。",
             Self::QueryMode if app.game.is_game_over() => "对局已结束，请点「新局」或 /new。",
             Self::QueryMode => "请先关闭红/黑电脑。",
@@ -339,8 +337,7 @@ impl App {
                     show_arrow,
                 );
                 self.last_book_fen = done_fen;
-                self.book_blocks_engine =
-                    hit && (self.game.query_mode || self.game.realtime_eval);
+                self.book_blocks_engine = hit && (self.game.query_mode || self.game.realtime_eval);
                 if hit && !self.book_blocks_engine {
                     self.last_analysis_revision = 0;
                 }
@@ -523,17 +520,16 @@ impl App {
         let best = store.result.best_move.as_str();
         AutoplayService::set_pending_arrow(&mut self.game, best);
         if self.last_eval_panel_refresh.elapsed() >= EVAL_PANEL_REFRESH_MS {
-            self.services
-                .analysis
-                .apply_engine_result(&mut self.game.analysis, &store.result, &fen);
+            self.services.analysis.apply_engine_result(
+                &mut self.game.analysis,
+                &store.result,
+                &fen,
+            );
             self.last_eval_panel_refresh = Instant::now();
         }
     }
 
-    fn finish_autoplay_engine_result(
-        &mut self,
-        result: crate::engine::EngineAnalyzeResult,
-    ) {
+    fn finish_autoplay_engine_result(&mut self, result: crate::engine::EngineAnalyzeResult) {
         let fen = GameService::engine_fen(&self.game);
         if let Some(uci) = best_uci_from_engine(&result) {
             self.ai_engine_retry_after = None;
@@ -624,8 +620,7 @@ impl App {
                 "对局结束：{msg}。已停止模式与引擎流；可用上一步/下一步浏览棋谱，/new 开新局。"
             );
         } else if !now_over && was_over {
-            self.status =
-                "已离开终局，可继续对弈（分析/电脑模式需手动重新开启）。".to_string();
+            self.status = "已离开终局，可继续对弈（分析/电脑模式需手动重新开启）。".to_string();
         }
     }
 
@@ -761,7 +756,10 @@ impl App {
 
     fn on_key_battle(&mut self, code: KeyCode) {
         if matches!(self.focus, Focus::CommandInput)
-            && self.handle_command_input_key(code, "棋盘：方向键移动，空格选子/落子，: 命令，/ 命令列表。")
+            && self.handle_command_input_key(
+                code,
+                "棋盘：方向键移动，空格选子/落子，: 命令，/ 命令列表。",
+            )
         {
             return;
         }
@@ -794,8 +792,7 @@ impl App {
 
     fn move_board_cursor(&mut self, screen_dfile: i8, screen_drank: i8) {
         self.focus = Focus::Board;
-        let (dfile, drank) =
-            cursor_delta_internal(screen_dfile, screen_drank, self.game.rotated);
+        let (dfile, drank) = cursor_delta_internal(screen_dfile, screen_drank, self.game.rotated);
         let (file, rank) = self.board_cursor;
         let file = (i16::from(file) + i16::from(dfile)).clamp(0, 8) as u8;
         let rank = (i16::from(rank) + i16::from(drank)).clamp(0, 9) as u8;
@@ -926,7 +923,10 @@ impl App {
         if matches!(self.focus, Focus::CommandInput)
             && self.handle_command_input_key(
                 code,
-                &format!("编辑「{}」：Enter 保存，Esc 返回。", self.settings_field.label()),
+                &format!(
+                    "编辑「{}」：Enter 保存，Esc 返回。",
+                    self.settings_field.label()
+                ),
             )
         {
             return;
@@ -1125,8 +1125,7 @@ impl App {
                 if GameService::undo(&mut self.game) {
                     self.refresh_engine_after_position_change();
                     self.status = if was_over && !self.game.is_game_over() {
-                        "已悔棋离开终局，可继续对弈（分析/电脑模式需手动重新开启）。"
-                            .to_string()
+                        "已悔棋离开终局，可继续对弈（分析/电脑模式需手动重新开启）。".to_string()
                     } else {
                         "已悔棋。".to_string()
                     };
@@ -1374,8 +1373,7 @@ impl App {
                 self.status = format!("时限：{next} ms");
             }
             SettingsField::EngineSearchDepth => {
-                let next =
-                    (i32::from(self.engine.search_depth) + delta as i32).clamp(1, 64) as u8;
+                let next = (i32::from(self.engine.search_depth) + delta as i32).clamp(1, 64) as u8;
                 self.engine.search_depth = next;
                 let _ = settings_config::save_engine_search_depth(next);
                 self.after_engine_settings_changed();
@@ -1383,8 +1381,8 @@ impl App {
             }
             SettingsField::EngineSearchNodes => {
                 let step = 100_000_i64.saturating_mul(delta as i64);
-                let next = (i64::from(self.engine.search_nodes) + step)
-                    .clamp(1_000, 500_000_000) as u32;
+                let next =
+                    (i64::from(self.engine.search_nodes) + step).clamp(1_000, 500_000_000) as u32;
                 self.engine.search_nodes = next;
                 let _ = settings_config::save_engine_search_nodes(next);
                 self.after_engine_settings_changed();
@@ -1681,8 +1679,7 @@ impl App {
                 if GameService::undo(&mut self.game) {
                     self.refresh_engine_after_position_change();
                     self.status = if was_over && !self.game.is_game_over() {
-                        "已悔棋离开终局，可继续对弈（分析/电脑模式需手动重新开启）。"
-                            .to_string()
+                        "已悔棋离开终局，可继续对弈（分析/电脑模式需手动重新开启）。".to_string()
                     } else {
                         "已悔棋。".to_string()
                     };

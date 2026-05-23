@@ -9,8 +9,8 @@ mod game;
 pub use analysis::AnalysisService;
 pub use autoplay::{
     AI_MOVE_DELAY, AiPhase, AutoplayService, BOOK_ARROW_DELAY, ai_enabled_for_side,
-    best_uci_from_book, best_uci_from_engine,
-    should_query_book_for_display, should_try_book_for_autoplay,
+    best_uci_from_book, best_uci_from_engine, should_query_book_for_display,
+    should_try_book_for_autoplay,
 };
 pub use book_async::{BookQueryKind, BookQueryRuntime};
 pub use command::{CommandService, CoordinateMove, ParsedCommand, SlashCommand};

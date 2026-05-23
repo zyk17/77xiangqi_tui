@@ -6,7 +6,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::style::{border_focused, border_normal, highlight, text as text_style, text_bold, text_dim};
+use super::style::{
+    border_focused, border_normal, highlight, text as text_style, text_bold, text_dim,
+};
 use super::{display_or_placeholder, yes_no};
 use crate::app::{App, SettingsField, settings_field::pick_mode_label};
 

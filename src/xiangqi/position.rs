@@ -1,6 +1,6 @@
 //! 局面终局判定（对齐 GUI `usePlayPageBoardPositionBundle`）。
 
-use super::{board::Board90, Side};
+use super::{Side, board::Board90};
 
 /// 当前行棋方无合法着时返回终局说明；否则 `None`。
 pub fn game_over_message(board: &Board90, side_to_move: Side) -> Option<String> {
