@@ -106,7 +106,7 @@ mod tests {
         let app = app_with_pending_arrow();
         let text = capture_frame_text(120, CAPTURE_HEIGHT, &app);
         assert!(
-            text.contains("提示") || text.contains('炮') || text.contains('兵'),
+            text.contains('炮') || text.contains('兵'),
             "pending move UI: {text}"
         );
     }

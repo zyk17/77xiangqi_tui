@@ -16,6 +16,10 @@ pub enum SettingsField {
     EngineHashMb,
     EngineSkill,
     EngineMultiPv,
+    EngineSearchLimit,
+    EngineMovetimeMs,
+    EngineSearchDepth,
+    EngineSearchNodes,
     BookLocalPath,
     BookLocalEnabled,
     BookCloudEnabled,
@@ -24,13 +28,20 @@ pub enum SettingsField {
 }
 
 impl SettingsField {
-    pub const ALL: [SettingsField; 11] = [
+    /// 开局库区第一行（其上方渲染分隔线）。
+    pub const FIRST_BOOK: Self = Self::BookLocalPath;
+
+    pub const ALL: [SettingsField; 15] = [
         Self::EnginePath,
         Self::EngineProtocol,
         Self::EngineThreads,
         Self::EngineHashMb,
         Self::EngineSkill,
         Self::EngineMultiPv,
+        Self::EngineSearchLimit,
+        Self::EngineMovetimeMs,
+        Self::EngineSearchDepth,
+        Self::EngineSearchNodes,
         Self::BookLocalPath,
         Self::BookLocalEnabled,
         Self::BookCloudEnabled,
@@ -46,6 +57,10 @@ impl SettingsField {
             Self::EngineHashMb => "Hash(MB)",
             Self::EngineSkill => "棋力 Skill",
             Self::EngineMultiPv => "MultiPV",
+            Self::EngineSearchLimit => "电脑走子",
+            Self::EngineMovetimeMs => "时限(ms)",
+            Self::EngineSearchDepth => "深度",
+            Self::EngineSearchNodes => "节点",
             Self::BookLocalPath => "本地库路径",
             Self::BookLocalEnabled => "启用本地库",
             Self::BookCloudEnabled => "启用云库",
@@ -59,10 +74,14 @@ impl SettingsField {
             Self::EnginePath | Self::BookLocalPath => SettingsFieldKind::Text,
             Self::BookLocalEnabled | Self::BookCloudEnabled => SettingsFieldKind::Bool,
             Self::EngineProtocol | Self::BookPickMode => SettingsFieldKind::Cycle,
+            Self::EngineSearchLimit => SettingsFieldKind::Cycle,
             Self::EngineThreads
             | Self::EngineHashMb
             | Self::EngineSkill
             | Self::EngineMultiPv
+            | Self::EngineMovetimeMs
+            | Self::EngineSearchDepth
+            | Self::EngineSearchNodes
             | Self::BookMaxHalfmoves => SettingsFieldKind::Number,
         }
     }
@@ -78,6 +97,10 @@ impl SettingsField {
             Self::EngineHashMb => "←/→ 微调；Enter 在 C 区输入 MB（64～8192）。",
             Self::EngineSkill => "←/→ 微调；Enter 在 C 区输入（0～20）。",
             Self::EngineMultiPv => "←/→ 微调；Enter 在 C 区输入（1～5）。",
+            Self::EngineSearchLimit => "←/→ 切换固定时间/深度/节点；Enter 输入 movetime/depth/nodes。",
+            Self::EngineMovetimeMs => "固定时间模式用；←/→ 微调；Enter 输入毫秒。",
+            Self::EngineSearchDepth => "固定深度模式用；←/→ 微调；Enter 输入层数。",
+            Self::EngineSearchNodes => "固定节点模式用；←/→ 微调；Enter 输入节点数。",
             Self::BookMaxHalfmoves => "←/→ 微调；Enter 在 C 区输入步数（0=不用库）。",
         }
     }

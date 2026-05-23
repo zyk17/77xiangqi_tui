@@ -1,23 +1,19 @@
-use std::sync::{Arc, Mutex};
-
-use crate::engine::{
-    EngineAnalysisStore, EngineAnalyzeResult, EngineConfig, EngineStreamRuntime,
-    uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine},
-};
-use crate::runtime_log;
+use crate::engine::{EngineAnalysisStore, EngineAnalyzeResult, EngineConfig, EngineStreamRuntime};
 
 /// 引擎调度：单进程 `UciUcciEngine`，流式 infinite 与 AI `go movetime` 互斥（对齐 GUI）。
 pub struct EngineService {
-    engine: Arc<Mutex<UciUcciEngine>>,
     stream: EngineStreamRuntime,
 }
 
 impl Default for EngineService {
     fn default() -> Self {
+        use std::sync::{Arc, Mutex};
+
+        use crate::engine::uci_ucci_engine::UciUcciEngine;
+
         let engine = Arc::new(Mutex::new(UciUcciEngine::new(None)));
         Self {
-            stream: EngineStreamRuntime::new(engine.clone()),
-            engine,
+            stream: EngineStreamRuntime::new(engine),
         }
     }
 }
@@ -35,31 +31,19 @@ impl EngineService {
         self.stream.ensure_stream(fen, cfg, want_stream);
     }
 
+    /// 仅停 `go infinite`（不关 AI 后台 `go`）。
     pub fn stop_stream(&self) {
-        self.stream.stop_stream();
+        self.stream.stop_infinite_stream();
     }
 
-    /// AI 自动走子：先停 infinite，再在同进程上 `analyze_autoplay_once`（主线程同步）。
-    pub fn run_autoplay_once(&self, fen: &str, cfg: &EngineConfig) -> EngineAnalyzeResult {
-        self.stream.stop_stream();
-        let fen = fen.trim();
-        let path = cfg.path.trim();
-        if path.is_empty() || fen.is_empty() {
-            runtime_log::warn("[autoplay] skip empty path or fen");
-            return EngineAnalyzeResult::default();
-        }
-        let Ok(mut eng) = self.engine.lock() else {
-            runtime_log::error("[autoplay] engine mutex poisoned");
-            return EngineAnalyzeResult::default();
-        };
-        self.apply_config(&mut eng, cfg);
-        runtime_log::info(format!("[autoplay] analyze start fen={fen}"));
-        let result = eng.analyze_autoplay_once(fen);
-        runtime_log::info(format!(
-            "[autoplay] analyze done best_move={} depth={:?}",
-            result.best_move, result.depth
-        ));
-        result
+    /// 停 infinite 并等待 AI `go`（新局、`/stop`、退出）。
+    pub fn stop_all(&self) {
+        self.stream.stop_all();
+    }
+
+    /// 无任何模式需要引擎时，终止子进程（对齐 GUI `clear_engine_mode_state`）。
+    pub fn release_if_idle(&self) {
+        self.stream.release_engine_process();
     }
 
     pub fn current_store(&self) -> EngineAnalysisStore {
@@ -78,22 +62,16 @@ impl EngineService {
         self.stream.is_running()
     }
 
-    fn apply_config(&self, eng: &mut UciUcciEngine, cfg: &EngineConfig) {
-        let path = cfg.path.trim();
-        if path.is_empty() {
-            return;
-        }
-        eng.configure(EngineConfigureRequest {
-            engine_path: Some(path.to_string()),
-            threads: Some(i32::from(cfg.threads)),
-            hash_mb: Some(cfg.hash_mb as i32),
-            repetition_rule: Some(cfg.variant.clone()),
-            draw_rule: Some(cfg.rule.clone()),
-            skill_level: Some(i32::from(cfg.skill_level)),
-            engine_protocol_preference: Some(cfg.protocol.preference().to_string()),
-            engine_config_path: None,
-            protocol_detected_for_path: None,
-            protocol_detected: None,
-        });
+    pub fn is_autoplay_running(&self) -> bool {
+        self.stream.is_autoplay_running()
+    }
+
+    /// 后台 `go`，思考过程中可通过 `current_store` / `snapshot_if_newer` 刷新箭头与 D 区。
+    pub fn spawn_autoplay_once(&self, fen: &str, cfg: &EngineConfig) {
+        self.stream.spawn_autoplay_once(fen, cfg);
+    }
+
+    pub fn poll_autoplay_done(&self) -> Option<EngineAnalyzeResult> {
+        self.stream.poll_autoplay_done()
     }
 }

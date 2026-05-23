@@ -292,6 +292,8 @@ mod tests {
         assert_eq!(input.text(), "undo");
         assert!(input.history_prev());
         assert_eq!(input.text(), "h2e2");
+        assert!(!input.history_prev());
+        assert_eq!(input.text(), "h2e2");
         assert!(input.history_next());
         assert_eq!(input.text(), "undo");
         assert!(input.history_next());

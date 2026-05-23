@@ -15,11 +15,13 @@ use ratatui::{
 };
 
 use self::style::{
-    border_active, border_focused, border_normal, button_idle, button_on, cursor_cell, highlight,
-    input_prompt, suggestion, tab_active, tab_idle, text as text_style, text_bold, text_dim,
+    active_flag, border_active, border_focused, border_normal, button_idle, button_on, cursor_cell,
+    highlight, input_prompt, suggestion, tab_active, tab_idle, text as text_style, text_bold,
+    text_dim,
 };
 
 use crate::app::{App, BattleButton, Focus, Screen, SettingsField, TopTab};
+use crate::xiangqi::uci_cell_label;
 
 pub use layout::UiRegions;
 
@@ -82,13 +84,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
         Screen::Settings => layout::ScreenRegions::Settings(render_settings(frame, root[1], app)),
     };
 
-    frame.render_widget(
-        Paragraph::new(app.status.as_str())
-            .style(text_style())
-            .block(block("状态"))
-            .wrap(Wrap { trim: true }),
-        root[2],
-    );
+    render_status_bar(frame, root[2], app);
 
     if app.help_open {
         help::render_help_overlay(frame, frame.area());
@@ -187,7 +183,7 @@ fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Sett
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(SettingsField::ALL.len() as u16 + 2),
+            Constraint::Length(settings_form::settings_form_row_count() + 2),
             Constraint::Min(0),
             Constraint::Length(5),
         ])
@@ -196,7 +192,7 @@ fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Sett
     let form_inner = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Min(SettingsField::ALL.len() as u16)])
+        .constraints([Constraint::Min(settings_form::settings_form_row_count())])
         .split(rows[0]);
     let form_regions = settings_form::render_settings_form(frame, form_inner[0], app);
     frame.render_widget(
@@ -515,6 +511,34 @@ fn board_keyboard_cell(app: &App) -> Option<(u8, u8)> {
     } else {
         None
     }
+}
+
+fn render_status_bar(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let (cf, cr) = app.board_cursor;
+    let mut spans = vec![Span::styled(app.status.as_str(), text_style())];
+    if app.screen == Screen::Battle {
+        spans.push(Span::raw("  |  "));
+        spans.push(Span::styled("光标 ", text_dim()));
+        spans.push(Span::styled(
+            uci_cell_label(cf, cr),
+            if matches!(app.focus, Focus::Board) {
+                highlight()
+            } else {
+                text_dim()
+            },
+        ));
+        if let Some((sf, sr)) = app.game.selected_cell {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("选中 ", text_dim()));
+            spans.push(Span::styled(uci_cell_label(sf, sr), active_flag()));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans))
+            .block(block("状态"))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 #[cfg(test)]

@@ -42,7 +42,7 @@
 - `/query`：查询模式开关
 - `/rotate`：旋转棋盘
 - `/copyfen`：复制 FEN 到系统剪贴板
-- `/pastefen`：粘贴 FEN
+- `/pastefen <FEN>`：粘贴 FEN（整段可含空格，如 `w - - 0 1`）
 - `/stop`：停止红/黑电脑、查询、实时评估与引擎流
 - `/help`：操作说明浮层（Esc 关闭）
 - `/eval`：实时评估开关

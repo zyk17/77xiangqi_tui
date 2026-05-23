@@ -22,10 +22,6 @@ fn debug_enabled() -> bool {
     })
 }
 
-pub fn info(message: impl AsRef<str>) {
-    write_log("info", message.as_ref());
-}
-
 pub fn warn(message: impl AsRef<str>) {
     write_log("warn", message.as_ref());
 }

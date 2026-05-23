@@ -5,6 +5,13 @@ edition = "2024"
 description = "77象棋 TUI 应用"
 license = "MIT"
 
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = true
+panic = "abort"
+
 [lints.rust]
 dead_code = "warn" # 与 `cargo lint-strict`（-D warnings）一并清零
 unused_imports = "warn"

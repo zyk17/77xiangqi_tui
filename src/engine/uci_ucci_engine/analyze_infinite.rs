@@ -59,6 +59,8 @@ impl UciUcciEngine {
             let mut guard = lock_store(store);
             guard.reset_for_stream(fen);
         }
+        let mut stop_sent = false;
+        let mut stop_at = Instant::now();
         let _ = self.send_cmd("stop");
         if let Err(e) = self.send_cmd(&format!("setoption name MultiPV value {mpv}")) {
             runtime_log::warn(format!(
@@ -92,19 +94,14 @@ impl UciUcciEngine {
         }
         let mut st = EngineInfoState::new();
         let mut got_best = false;
-        let mut stop_sent = false;
-        let mut stop_at = Instant::now();
         while !got_best {
-            if !session_live(live_session, session_id) {
-                break;
-            }
-            if stop.load(Ordering::SeqCst) {
+            let session_ok = session_live(live_session, session_id);
+            if stop.load(Ordering::SeqCst) || !session_ok {
                 if !stop_sent {
                     let _ = self.send_cmd("stop");
                     stop_sent = true;
                     stop_at = Instant::now();
-                }
-                if stop_sent && stop_at.elapsed() > Duration::from_secs(3) {
+                } else if stop_at.elapsed() > Duration::from_secs(3) {
                     break;
                 }
             }
@@ -117,9 +114,6 @@ impl UciUcciEngine {
                 }
                 EngineStdoutPoll::Tick => {}
                 EngineStdoutPoll::Line(line) => {
-                    if !session_live(live_session, session_id) {
-                        break;
-                    }
                     match apply_infinite_stdout_line(&line, fen, &mut st) {
                         InfiniteLineOutcome::Continue => {
                             let mut guard = lock_store(store);
@@ -135,7 +129,10 @@ impl UciUcciEngine {
                 }
             }
         }
-        if !got_best && !stop.load(Ordering::SeqCst) {
+        if !got_best {
+            if !stop_sent {
+                let _ = self.send_cmd("stop");
+            }
             runtime_log::warn("[engine_infinite] bestmove_not_observed_before_exit");
         }
         if session_live(live_session, session_id)

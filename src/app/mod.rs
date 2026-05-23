@@ -10,17 +10,18 @@ use ratatui::{Terminal, backend::Backend};
 use crate::{
     book::BookConfig,
     clipboard,
-    engine::EngineConfig,
+    engine::{EngineConfig, EngineSearchLimit},
     game::GameState,
     input::InputState,
     service::{
-        AI_MOVE_DELAY, AiPhase, AppServices, AutoplayService, BOOK_ARROW_DELAY, CoordinateMove,
-        GameService, ParsedCommand, SlashCommand, ai_enabled_for_side, best_uci_from_engine,
-        book_config_usable, should_query_book_for_display,
+        AI_MOVE_DELAY, AiPhase, AppServices, AutoplayService, BOOK_ARROW_DELAY, BookQueryKind,
+        CoordinateMove, GameService, ParsedCommand, SlashCommand, ai_enabled_for_side,
+        best_uci_from_book, best_uci_from_engine, should_query_book_for_display,
+        should_try_book_for_autoplay, wants_shared_infinite_stream,
     },
     settings_config,
     ui::{self, HitTarget},
-    xiangqi::{Side, uci_cell_label},
+    xiangqi::{Side, cursor_delta_internal, uci_cell_label},
 };
 
 pub use settings_field::SettingsField;
@@ -28,8 +29,15 @@ use settings_field::{
     SettingsFieldKind, bump_hash_mb, clamp_threads, cycle_pick_mode, cycle_protocol,
 };
 
-const TICK_RATE: Duration = Duration::from_millis(50);
+/// 事件轮询间隔；主循环每轮都重绘，不人为 cap 帧率。
+const INPUT_POLL: Duration = Duration::from_millis(16);
+/// 仅 D 区数值/ PV 回填节流（对齐 GUI `ENGINE_INFINITE_STREAM_UI_MS`，不限制棋盘重绘）。
+const EVAL_PANEL_REFRESH_MS: Duration = Duration::from_millis(200);
 const AI_ENGINE_RETRY_COOLDOWN: Duration = Duration::from_secs(2);
+
+fn show_analysis_arrow(game: &GameState) -> bool {
+    game.query_mode || game.realtime_eval
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -158,10 +166,16 @@ pub struct App {
     pub services: AppServices,
     last_analysis_revision: u64,
     last_book_fen: String,
+    /// 本局面已查过棋库自动走子（命中或未命中），避免重复 spawn。
+    book_autoplay_checked_fen: String,
     book_blocks_engine: bool,
     ai_phase: AiPhase,
     /// 引擎分析失败后的冷却，避免每帧重试卡死 UI。
     ai_engine_retry_after: Option<Instant>,
+    /// AI 思考中引擎快照 revision（箭头可随 store 更新）。
+    last_autoplay_analysis_revision: u64,
+    /// 上次把引擎快照写入 D 区的时间（仅节流分析面板，不节流 draw）。
+    last_eval_panel_refresh: Instant,
     /// 键盘焦点格（内部 file/rank，与 UCI 一致）
     pub board_cursor: (u8, u8),
     /// `/help` 或 `?` 打开的操作说明浮层。
@@ -177,6 +191,10 @@ impl Default for App {
             hash_mb: settings_config::load_engine_hash_mb(),
             skill_level: settings_config::load_engine_skill(),
             multi_pv: settings_config::load_engine_multi_pv(),
+            search_limit: settings_config::load_engine_search_limit(),
+            movetime_ms: settings_config::load_engine_movetime_ms(),
+            search_depth: settings_config::load_engine_search_depth(),
+            search_nodes: settings_config::load_engine_search_nodes(),
             ..EngineConfig::default()
         };
         let book = BookConfig {
@@ -206,9 +224,12 @@ impl Default for App {
             services: AppServices::default(),
             last_analysis_revision: 0,
             last_book_fen: String::new(),
+            book_autoplay_checked_fen: String::new(),
             book_blocks_engine: false,
             ai_phase: AiPhase::Idle,
             ai_engine_retry_after: None,
+            last_autoplay_analysis_revision: 0,
+            last_eval_panel_refresh: Instant::now(),
             help_open: false,
         }
     }
@@ -217,7 +238,10 @@ impl Default for App {
 impl App {
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()> {
         while !self.should_quit {
+            let has_event = event::poll(INPUT_POLL)?;
+
             // AI 先走子再开流式，避免 infinite 与 autoplay 抢同一引擎锁/进程
+            self.tick_book_queries();
             if ai_enabled_for_side(&self.game) && self.screen == Screen::Battle {
                 self.tick_ai_autoplay();
                 self.tick_engine_stream();
@@ -230,7 +254,7 @@ impl App {
                 self.ui_regions = Some(output.regions);
             })?;
 
-            if !event::poll(TICK_RATE)? {
+            if !has_event {
                 continue;
             }
 
@@ -244,19 +268,44 @@ impl App {
             }
         }
 
-        self.services.engine.stop_stream();
+        self.services.engine.stop_all();
         Ok(())
     }
 
     fn want_engine_stream(&self) -> bool {
         !self.game.is_game_over()
-            && (self.game.realtime_eval || self.game.query_mode)
+            && wants_shared_infinite_stream(&self.game)
             && !self.book_blocks_engine
             && !ai_enabled_for_side(&self.game)
+            && !self.services.engine.is_autoplay_running()
             && matches!(self.ai_phase, AiPhase::Idle)
     }
 
-    fn refresh_book_analysis(&mut self, fen: &str) {
+    /// 是否仍需保持引擎子进程（infinite / AI `go` / 待落子）。
+    fn wants_engine_process(&self) -> bool {
+        if self.screen != Screen::Battle || !self.game.history.at_head() {
+            return false;
+        }
+        if self.want_engine_stream() {
+            return true;
+        }
+        if ai_enabled_for_side(&self.game) {
+            return true;
+        }
+        if self.services.engine.is_autoplay_running() {
+            return true;
+        }
+        !matches!(self.ai_phase, AiPhase::Idle)
+    }
+
+    fn sync_engine_lifecycle(&mut self) {
+        if self.wants_engine_process() {
+            return;
+        }
+        self.services.engine.release_if_idle();
+    }
+
+    fn request_book_display(&mut self, fen: &str) {
         if !should_query_book_for_display(&self.book) {
             self.book_blocks_engine = false;
             return;
@@ -264,19 +313,48 @@ impl App {
         if self.last_book_fen == fen {
             return;
         }
-        self.last_book_fen = fen.to_string();
-        let query_mode = self.game.query_mode;
-        let hit = AutoplayService::query_book_display(
-            &self.services.book,
-            &self.services.analysis,
-            &mut self.game,
-            &self.book,
-            fen,
-            query_mode,
-        );
-        self.book_blocks_engine = hit && (self.game.query_mode || self.game.realtime_eval);
-        if hit && !self.book_blocks_engine {
-            self.last_analysis_revision = 0;
+        if self.services.book_queries.pending_fen().as_deref() == Some(fen) {
+            return;
+        }
+        self.services
+            .book_queries
+            .spawn_if_needed(fen, &self.book, BookQueryKind::Display);
+    }
+
+    fn tick_book_queries(&mut self) {
+        let Some((done_fen, kind, response)) = self.services.book_queries.poll() else {
+            return;
+        };
+        let fen_now = GameService::engine_fen(&self.game);
+        if done_fen != fen_now {
+            return;
+        }
+        match kind {
+            BookQueryKind::Display => {
+                let show_arrow = show_analysis_arrow(&self.game);
+                let hit = AutoplayService::apply_book_display_from_response(
+                    &self.services.analysis,
+                    &mut self.game,
+                    &response,
+                    show_arrow,
+                );
+                self.last_book_fen = done_fen;
+                self.book_blocks_engine =
+                    hit && (self.game.query_mode || self.game.realtime_eval);
+                if hit && !self.book_blocks_engine {
+                    self.last_analysis_revision = 0;
+                }
+            }
+            BookQueryKind::Autoplay => {
+                self.book_autoplay_checked_fen = done_fen;
+                if let Some(uci) = best_uci_from_book(&response) {
+                    self.ai_phase = AutoplayService::begin_ai_wait(
+                        &mut self.game,
+                        uci,
+                        BOOK_ARROW_DELAY.max(AI_MOVE_DELAY),
+                    );
+                }
+            }
         }
     }
 
@@ -284,26 +362,33 @@ impl App {
     fn tick_engine_stream(&mut self) {
         if self.game.is_game_over() {
             self.services.engine.stop_stream();
+            self.sync_engine_lifecycle();
             return;
         }
         if self.screen != Screen::Battle {
             self.services.engine.stop_stream();
+            self.sync_engine_lifecycle();
             return;
         }
         if !self.game.history.at_head() {
             self.services.engine.stop_stream();
+            self.sync_engine_lifecycle();
             return;
         }
         let fen = GameService::engine_fen(&self.game);
         let want_eval = self.game.realtime_eval || self.game.query_mode;
-        if want_eval || book_config_usable(&self.book) {
-            self.refresh_book_analysis(&fen);
+        if want_eval {
+            self.request_book_display(&fen);
         }
         let want_stream = self.want_engine_stream();
         self.services
             .engine
             .ensure_stream(&fen, &self.engine, want_stream);
         if !want_stream {
+            self.sync_engine_lifecycle();
+            return;
+        }
+        if self.last_eval_panel_refresh.elapsed() < EVAL_PANEL_REFRESH_MS {
             return;
         }
         let Some((store, revision)) = self
@@ -314,20 +399,26 @@ impl App {
             return;
         };
         self.last_analysis_revision = revision;
+        self.last_eval_panel_refresh = Instant::now();
+        let show_arrow = show_analysis_arrow(&self.game);
         self.services.analysis.apply_engine_store(
             &mut self.game.analysis,
             &store,
-            self.game.query_mode,
+            show_arrow,
             &mut self.game.pending_arrow,
         );
     }
 
     fn reset_analysis_tracking(&mut self) {
         self.last_analysis_revision = 0;
+        self.last_autoplay_analysis_revision = 0;
+        self.last_eval_panel_refresh = Instant::now();
         self.last_book_fen.clear();
+        self.book_autoplay_checked_fen.clear();
         self.book_blocks_engine = false;
         self.ai_phase = AiPhase::Idle;
         self.ai_engine_retry_after = None;
+        self.services.book_queries.cancel();
     }
 
     fn tick_ai_autoplay(&mut self) {
@@ -337,6 +428,17 @@ impl App {
         }
         if self.screen != Screen::Battle {
             self.ai_phase = AiPhase::Idle;
+            return;
+        }
+
+        if let Some(result) = self.services.engine.poll_autoplay_done() {
+            self.finish_autoplay_engine_result(result);
+            return;
+        }
+
+        if self.services.engine.is_autoplay_running() {
+            self.sync_autoplay_thinking_arrow();
+            self.status = "电脑思考中（引擎分析）…".to_string();
             return;
         }
 
@@ -374,18 +476,18 @@ impl App {
         }
 
         let fen = GameService::engine_fen(&self.game);
-        if let Some(uci) = AutoplayService::try_book_autoplay_move_for_game(
-            &self.services.book,
-            &self.game,
-            &self.book,
-            &fen,
-        ) {
-            self.ai_phase = AutoplayService::begin_ai_wait(
-                &mut self.game,
-                uci,
-                BOOK_ARROW_DELAY.max(AI_MOVE_DELAY),
-            );
-            return;
+        if should_try_book_for_autoplay(&self.game, &self.book) {
+            if self.services.book_queries.is_busy() {
+                return;
+            }
+            if self.book_autoplay_checked_fen != fen {
+                self.services.book_queries.spawn_if_needed(
+                    &fen,
+                    &self.book,
+                    BookQueryKind::Autoplay,
+                );
+                return;
+            }
         }
 
         if self.engine.path.trim().is_empty() {
@@ -400,8 +502,39 @@ impl App {
             return;
         }
 
+        self.services.engine.spawn_autoplay_once(&fen, &self.engine);
         self.status = "电脑思考中（引擎分析）…".to_string();
-        let result = self.services.engine.run_autoplay_once(&fen, &self.engine);
+    }
+
+    /// 引擎 `go` 思考中：箭头随 store 更新；D 区数值仍按 [`EVAL_PANEL_REFRESH_MS`] 节流。
+    fn sync_autoplay_thinking_arrow(&mut self) {
+        let fen = GameService::engine_fen(&self.game);
+        let Some((store, revision)) = self
+            .services
+            .engine
+            .snapshot_if_newer(self.last_autoplay_analysis_revision)
+        else {
+            return;
+        };
+        if store.fen != fen {
+            return;
+        }
+        self.last_autoplay_analysis_revision = revision;
+        let best = store.result.best_move.as_str();
+        AutoplayService::set_pending_arrow(&mut self.game, best);
+        if self.last_eval_panel_refresh.elapsed() >= EVAL_PANEL_REFRESH_MS {
+            self.services
+                .analysis
+                .apply_engine_result(&mut self.game.analysis, &store.result, &fen);
+            self.last_eval_panel_refresh = Instant::now();
+        }
+    }
+
+    fn finish_autoplay_engine_result(
+        &mut self,
+        result: crate::engine::EngineAnalyzeResult,
+    ) {
+        let fen = GameService::engine_fen(&self.game);
         if let Some(uci) = best_uci_from_engine(&result) {
             self.ai_engine_retry_after = None;
             self.services
@@ -440,9 +573,9 @@ impl App {
             &store.result,
             &store.fen,
         );
-        self.services.analysis.sync_query_arrow(
+        self.services.analysis.sync_analysis_arrow(
             best,
-            self.game.query_mode,
+            show_analysis_arrow(&self.game),
             &mut self.game.pending_arrow,
         );
     }
@@ -456,9 +589,10 @@ impl App {
         self.ai_phase = AiPhase::Idle;
         self.ai_engine_retry_after = None;
         self.game.pending_arrow = None;
-        self.services.engine.stop_stream();
+        self.services.engine.stop_all();
         self.game.analysis = self.services.analysis.idle_snapshot();
         self.reset_analysis_tracking();
+        self.sync_engine_lifecycle();
     }
 
     fn start_new_game(&mut self) {
@@ -553,15 +687,24 @@ impl App {
                 }
             );
         } else {
-            self.services.engine.stop_stream();
+            self.services.engine.stop_all();
             self.game.pending_arrow = None;
             self.game.analysis = self.services.analysis.idle_snapshot();
             self.reset_analysis_tracking();
-            if book_config_usable(&self.book) {
-                self.tick_engine_stream();
-            }
+            self.sync_engine_lifecycle();
             self.status = "已关闭实时评估/查询。".to_string();
         }
+    }
+
+    fn refresh_engine_after_ai_toggle(&mut self) {
+        if !ai_enabled_for_side(&self.game) {
+            self.ai_phase = AiPhase::Idle;
+            self.ai_engine_retry_after = None;
+            self.game.pending_arrow = None;
+            self.services.engine.stop_all();
+        }
+        self.tick_engine_stream();
+        self.sync_engine_lifecycle();
     }
 
     fn on_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
@@ -649,8 +792,10 @@ impl App {
         }
     }
 
-    fn move_board_cursor(&mut self, dfile: i8, drank: i8) {
+    fn move_board_cursor(&mut self, screen_dfile: i8, screen_drank: i8) {
         self.focus = Focus::Board;
+        let (dfile, drank) =
+            cursor_delta_internal(screen_dfile, screen_drank, self.game.rotated);
         let (file, rank) = self.board_cursor;
         let file = (i16::from(file) + i16::from(dfile)).clamp(0, 8) as u8;
         let rank = (i16::from(rank) + i16::from(drank)).clamp(0, 9) as u8;
@@ -703,20 +848,20 @@ impl App {
                 }
                 true
             }
-            KeyCode::Up if self.input.history_prev() => {
-                self.status = "上一条命令（↑↓ 翻阅，Enter 才记入历史）。".to_string();
+            KeyCode::Up => {
+                if self.input.history_prev() {
+                    self.status = "上一条命令（↑↓ 翻阅，Enter 才记入历史）。".to_string();
+                } else if self.input.slash_menu_open() {
+                    self.input.move_slash_pick(-1);
+                }
                 true
             }
-            KeyCode::Up if self.input.slash_menu_open() => {
-                self.input.move_slash_pick(-1);
-                true
-            }
-            KeyCode::Down if self.input.history_next() => {
-                self.status = "下一条命令。".to_string();
-                true
-            }
-            KeyCode::Down if self.input.slash_menu_open() => {
-                self.input.move_slash_pick(1);
+            KeyCode::Down => {
+                if self.input.history_next() {
+                    self.status = "下一条命令。".to_string();
+                } else if self.input.slash_menu_open() {
+                    self.input.move_slash_pick(1);
+                }
                 true
             }
             KeyCode::Right if self.input.slash_menu_open() => {
@@ -898,16 +1043,23 @@ impl App {
         }
 
         let raw = self.input.take_text();
-        let command = raw.trim().to_ascii_lowercase();
-        if command.is_empty() {
+        let input = raw.trim();
+        if input.is_empty() {
             return;
         }
-        self.input.commit_command_history(raw.trim());
-        match self.services.command.parse(&command) {
+        self.input.commit_command_history(input);
+        match self.services.command.parse(input) {
             Ok(ParsedCommand::Move(mv)) => self.execute_move_command(mv),
             Ok(ParsedCommand::Slash(slash)) => {
                 self.execute_slash_command(slash, raw.trim());
             }
+            Ok(ParsedCommand::PasteFen(fen)) => match GameService::load_fen(&mut self.game, &fen) {
+                Ok(()) => {
+                    self.refresh_engine_after_position_change();
+                    self.status = "已载入 FEN。".to_string();
+                }
+                Err(msg) => self.status = msg,
+            },
             Err(err) => self.status = err.message(),
         }
     }
@@ -955,7 +1107,7 @@ impl App {
         self.tick_engine_stream();
     }
 
-    fn execute_slash_command(&mut self, command: SlashCommand, raw: &str) {
+    fn execute_slash_command(&mut self, command: SlashCommand, _raw: &str) {
         match command {
             SlashCommand::New => {
                 self.start_new_game();
@@ -1005,6 +1157,7 @@ impl App {
                     self.game.red_ai = !self.game.red_ai;
                     self.status =
                         format!("红AI：{}", if self.game.red_ai { "开启" } else { "关闭" });
+                    self.refresh_engine_after_ai_toggle();
                 }
             }
             SlashCommand::BlackAi => {
@@ -1020,6 +1173,7 @@ impl App {
                             "关闭"
                         }
                     );
+                    self.refresh_engine_after_ai_toggle();
                 }
             }
             SlashCommand::Query => {
@@ -1054,20 +1208,7 @@ impl App {
                 self.copy_fen_to_clipboard();
             }
             SlashCommand::PasteFen => {
-                let fen = raw
-                    .strip_prefix("/pastefen")
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty());
-                match fen {
-                    Some(fen) => match GameService::load_fen(&mut self.game, fen) {
-                        Ok(()) => {
-                            self.refresh_engine_after_position_change();
-                            self.status = "已载入 FEN。".to_string();
-                        }
-                        Err(msg) => self.status = msg,
-                    },
-                    None => self.status = "用法：/pastefen <FEN>".to_string(),
-                }
+                self.status = "用法：/pastefen <FEN>（FEN 可含空格）。".to_string();
             }
             SlashCommand::Exit | SlashCommand::Quit => {
                 self.should_quit = true;
@@ -1103,6 +1244,10 @@ impl App {
             SettingsField::EngineHashMb => self.engine.hash_mb.to_string(),
             SettingsField::EngineSkill => self.engine.skill_level.to_string(),
             SettingsField::EngineMultiPv => self.engine.multi_pv.to_string(),
+            SettingsField::EngineSearchLimit => self.engine.search_limit.config_key().to_string(),
+            SettingsField::EngineMovetimeMs => self.engine.movetime_ms.to_string(),
+            SettingsField::EngineSearchDepth => self.engine.search_depth.to_string(),
+            SettingsField::EngineSearchNodes => self.engine.search_nodes.to_string(),
             SettingsField::BookLocalEnabled => {
                 if self.book.local_enabled {
                     "1".to_string()
@@ -1212,6 +1357,39 @@ impl App {
                 self.after_engine_settings_changed();
                 self.status = format!("MultiPV：{next}");
             }
+            SettingsField::EngineSearchLimit => {
+                let next = self.engine.search_limit.cycle(delta);
+                self.engine.search_limit = next;
+                let _ = settings_config::save_engine_search_limit(next);
+                self.after_engine_settings_changed();
+                self.status = format!("电脑走子：{}", next.label());
+            }
+            SettingsField::EngineMovetimeMs => {
+                let step = 500_i32.saturating_mul(delta as i32);
+                let next = (i32::try_from(self.engine.movetime_ms).unwrap_or(3000) + step)
+                    .clamp(100, 86_400_000) as u32;
+                self.engine.movetime_ms = next;
+                let _ = settings_config::save_engine_movetime_ms(next);
+                self.after_engine_settings_changed();
+                self.status = format!("时限：{next} ms");
+            }
+            SettingsField::EngineSearchDepth => {
+                let next =
+                    (i32::from(self.engine.search_depth) + delta as i32).clamp(1, 64) as u8;
+                self.engine.search_depth = next;
+                let _ = settings_config::save_engine_search_depth(next);
+                self.after_engine_settings_changed();
+                self.status = format!("深度：{next}");
+            }
+            SettingsField::EngineSearchNodes => {
+                let step = 100_000_i64.saturating_mul(delta as i64);
+                let next = (i64::from(self.engine.search_nodes) + step)
+                    .clamp(1_000, 500_000_000) as u32;
+                self.engine.search_nodes = next;
+                let _ = settings_config::save_engine_search_nodes(next);
+                self.after_engine_settings_changed();
+                self.status = format!("节点：{next}");
+            }
             SettingsField::BookPickMode => {
                 self.book.pick_mode = cycle_pick_mode(&self.book.pick_mode, delta);
                 let _ = settings_config::save_book_pick_mode(&self.book.pick_mode);
@@ -1320,6 +1498,55 @@ impl App {
                     return;
                 }
             },
+            SettingsField::EngineSearchLimit => {
+                let mode = EngineSearchLimit::from_config_key(value);
+                self.engine.search_limit = mode;
+                settings_config::save_engine_search_limit(mode)
+                    .err()
+                    .map(|e| e.to_string())
+            }
+            SettingsField::EngineMovetimeMs => match value.parse::<u32>() {
+                Ok(v) => {
+                    let v = v.clamp(100, 86_400_000);
+                    self.engine.movetime_ms = v;
+                    settings_config::save_engine_movetime_ms(v)
+                        .err()
+                        .map(|e| e.to_string())
+                }
+                Err(_) => {
+                    self.status = "时限无效。".to_string();
+                    self.begin_settings_input();
+                    return;
+                }
+            },
+            SettingsField::EngineSearchDepth => match value.parse::<u8>() {
+                Ok(v) => {
+                    let v = v.clamp(1, 64);
+                    self.engine.search_depth = v;
+                    settings_config::save_engine_search_depth(v)
+                        .err()
+                        .map(|e| e.to_string())
+                }
+                Err(_) => {
+                    self.status = "深度无效。".to_string();
+                    self.begin_settings_input();
+                    return;
+                }
+            },
+            SettingsField::EngineSearchNodes => match value.parse::<u32>() {
+                Ok(v) => {
+                    let v = v.clamp(1_000, 500_000_000);
+                    self.engine.search_nodes = v;
+                    settings_config::save_engine_search_nodes(v)
+                        .err()
+                        .map(|e| e.to_string())
+                }
+                Err(_) => {
+                    self.status = "节点数无效。".to_string();
+                    self.begin_settings_input();
+                    return;
+                }
+            },
             SettingsField::BookLocalEnabled | SettingsField::BookCloudEnabled => {
                 let on = matches!(value, "1" | "true" | "yes" | "on");
                 if field == SettingsField::BookLocalEnabled {
@@ -1417,6 +1644,7 @@ impl App {
                 {
                     self.status.push_str("（思考中…）");
                 }
+                self.refresh_engine_after_ai_toggle();
             }
             BattleButton::BlackAi => {
                 self.game.black_ai = !self.game.black_ai;
@@ -1435,6 +1663,7 @@ impl App {
                 {
                     self.status.push_str("（思考中…）");
                 }
+                self.refresh_engine_after_ai_toggle();
             }
             BattleButton::QueryMode => {
                 self.game.query_mode = !self.game.query_mode;

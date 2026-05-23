@@ -49,20 +49,21 @@ impl AnalysisService {
         &self,
         snapshot: &mut AnalysisSnapshot,
         store: &EngineAnalysisStore,
-        query_mode: bool,
+        show_analysis_arrow: bool,
         pending_arrow: &mut Option<BoardArrow>,
     ) {
         self.apply_engine_result(snapshot, &store.result, &store.fen);
-        self.sync_query_arrow(&store.result.best_move, query_mode, pending_arrow);
+        self.sync_analysis_arrow(&store.result.best_move, show_analysis_arrow, pending_arrow);
     }
 
-    pub fn sync_query_arrow(
+    /// 查询模式与实时评估均在落子前展示推荐箭头（对齐 GUI 查询/评估 UI）。
+    pub fn sync_analysis_arrow(
         &self,
         uci_best: &str,
-        query_mode: bool,
+        show_arrow: bool,
         pending_arrow: &mut Option<BoardArrow>,
     ) {
-        if query_mode {
+        if show_arrow {
             if let Some(arrow) = board_arrow_from_uci(uci_best) {
                 *pending_arrow = Some(arrow);
             }
@@ -170,6 +171,16 @@ mod tests {
         assert_eq!(arrow.from_file, 7);
         assert_eq!(arrow.from_rank, 7);
         assert!(board_arrow_from_uci("stub_move").is_none());
+    }
+
+    #[test]
+    fn sync_analysis_arrow_respects_show_flag() {
+        let svc = AnalysisService;
+        let mut arrow = None;
+        svc.sync_analysis_arrow("h2e2", false, &mut arrow);
+        assert!(arrow.is_none());
+        svc.sync_analysis_arrow("h2e2", true, &mut arrow);
+        assert!(arrow.is_some());
     }
 
     #[test]

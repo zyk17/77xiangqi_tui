@@ -24,6 +24,9 @@ const HIGHLIGHT_RED_PENDING: Color = Color::Rgb(230, 145, 55);
 /// 上一手 / 提示：黑方高亮
 const HIGHLIGHT_BLACK: Color = Color::Rgb(32, 58, 105);
 const HIGHLIGHT_BLACK_PENDING: Color = Color::Rgb(45, 75, 135);
+/// 选子 / 光标：仅加亮该格四周网格线，不遮挡棋子
+const GRID_SELECTED: Color = Color::Rgb(120, 220, 140);
+const GRID_CURSOR: Color = Color::Rgb(255, 220, 80);
 const AXIS_W: usize = 2;
 /// 终端字符显示宽/高（约 8×16 px → 0.5），与 `scripts/check_board_aspect.py` 一致
 pub(crate) const TERMINAL_CHAR_WH_RATIO: f64 = 0.5;
@@ -34,12 +37,14 @@ const PIECE_FILL_PERCENT: usize = 80;
 /// 画完 screen_row 4 后插河界
 const RIVER_AFTER_SCREEN_ROW: u8 = 4;
 
-/// 棋盘绘制时的选子、键盘光标与箭头叠加状态。
+/// 棋盘绘制：箭头、选子格/光标格网格线高亮。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoardOverlay {
     pub last_arrow: Option<BoardArrow>,
     pub pending_arrow: Option<BoardArrow>,
+    /// 手动选子（内部 file/rank）
     pub selected: Option<(u8, u8)>,
+    /// 键盘光标格（内部 file/rank）
     pub keyboard: Option<(u8, u8)>,
 }
 
@@ -232,14 +237,9 @@ pub fn render_grid_board(
     rotated: bool,
     overlay: BoardOverlay,
 ) -> Rect {
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        if overlay.pending_arrow.is_some() {
-            "A 棋盘 · 提示"
-        } else {
-            "A 棋盘"
-        },
-        text_bold(),
-    ));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled("A 棋盘", text_bold()));
     let inner = board_block_inner(area);
     let m = grid_metrics_for_board_area(area);
     crate::runtime_log::debug(format!(
@@ -254,21 +254,29 @@ pub fn render_grid_board(
         m.pad_left,
         m.pad_top
     ));
-    let line_stroke = Style::default().fg(GRID_STROKE);
     let mut lines = Vec::new();
-    lines.push(border_line(&m, '┌', '┬', '┐', line_stroke));
+    lines.push(border_line(&m, '┌', '┬', '┐', |file| {
+        cell_highlight_at_screen(overlay, rotated, file, 0)
+    }));
     for screen_row in 0..10_u8 {
         lines.extend(rank_block(&m, board, screen_row, rotated, overlay));
         if screen_row == 9 {
             break;
         }
         if screen_row == RIVER_AFTER_SCREEN_ROW {
-            lines.extend(river_block(&m, line_stroke));
+            lines.extend(river_block(&m, overlay, rotated));
         } else {
-            lines.push(border_line(&m, '├', '┼', '┤', line_stroke));
+            let below = screen_row;
+            let above = screen_row.saturating_add(1);
+            lines.push(border_line(&m, '├', '┼', '┤', |file| {
+                cell_highlight_at_screen(overlay, rotated, file, below)
+                    .or(cell_highlight_at_screen(overlay, rotated, file, above))
+            }));
         }
     }
-    lines.push(border_line(&m, '└', '┴', '┘', line_stroke));
+    lines.push(border_line(&m, '└', '┴', '┘', |file| {
+        cell_highlight_at_screen(overlay, rotated, file, 9)
+    }));
     lines.push(file_axis_line(&m, rotated));
 
     let grid_w = m.line_cols() as u16;
@@ -429,16 +437,27 @@ fn rank_block(
                 },
                 text_dim(),
             )];
-            spans.push(Span::styled("│", Style::default().fg(GRID_STROKE)));
+            let (if0, ir0) = screen_to_internal(0, screen_row, rotated);
+            spans.push(Span::styled(
+                "│",
+                grid_stroke_style(cell_grid_highlight(overlay, if0, ir0)),
+            ));
             for file in 0..9u8 {
                 let (ifile, irank) = screen_to_internal(file, screen_row, rotated);
                 let piece = board.get(ifile, irank);
                 spans.extend(cell_spans(m, board, piece, ifile, irank, sub, overlay));
                 if file != 8 {
-                    spans.push(Span::styled("│", Style::default().fg(GRID_STROKE)));
+                    let (nf, nr) = screen_to_internal(file + 1, screen_row, rotated);
+                    let joint_hi = cell_grid_highlight(overlay, ifile, irank)
+                        .or(cell_grid_highlight(overlay, nf, nr));
+                    spans.push(Span::styled("│", grid_stroke_style(joint_hi)));
                 }
             }
-            spans.push(Span::styled("│", Style::default().fg(GRID_STROKE)));
+            let (if8, ir8) = screen_to_internal(8, screen_row, rotated);
+            spans.push(Span::styled(
+                "│",
+                grid_stroke_style(cell_grid_highlight(overlay, if8, ir8)),
+            ));
             Line::from(spans)
         })
         .collect()
@@ -473,7 +492,10 @@ fn cell_spans(
     let right_w = m.cell_w.saturating_sub(m.piece_pad_w + m.piece_w);
     let mut spans = Vec::with_capacity(3);
     if m.piece_pad_w > 0 {
-        spans.push(Span::styled(" ".repeat(m.piece_pad_w), style));
+        spans.push(Span::styled(
+            fit_display("", m.piece_pad_w),
+            if show_glyph { style } else { text_dim() },
+        ));
     }
     let piece_text = if show_glyph {
         piece_label(cell)
@@ -484,7 +506,10 @@ fn cell_spans(
     };
     spans.push(Span::styled(piece_text, style));
     if right_w > 0 {
-        spans.push(Span::styled(" ".repeat(right_w), style));
+        spans.push(Span::styled(
+            fit_display("", right_w),
+            if show_glyph { style } else { text_dim() },
+        ));
     }
     spans
 }
@@ -557,15 +582,6 @@ fn apply_highlights(
     rank: u8,
     overlay: BoardOverlay,
 ) -> Style {
-    if overlay.selected == Some((file, rank)) {
-        style = style.bg(Color::Rgb(60, 90, 60));
-    }
-    if overlay.keyboard == Some((file, rank)) {
-        style = style
-            .bg(Color::Yellow)
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD);
-    }
     if let Some((bg, bold)) =
         move_highlight_overlay(board, file, rank, overlay.last_arrow, overlay.pending_arrow)
     {
@@ -587,16 +603,35 @@ fn empty_cell_style(board: &Board90, file: u8, rank: u8, overlay: BoardOverlay) 
         }
         return s;
     }
-    if overlay.keyboard == Some((file, rank)) {
-        return Style::default()
-            .bg(Color::Yellow)
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD);
-    }
-    if overlay.selected == Some((file, rank)) {
-        return Style::default().bg(Color::Rgb(60, 90, 60));
-    }
     text_dim()
+}
+
+/// 选子与光标可同时高亮（不同格各画各的）；拐角 `┬┼┴` 不着色，避免伸进邻格。
+fn cell_grid_highlight(overlay: BoardOverlay, file: u8, rank: u8) -> Option<Color> {
+    if overlay.selected == Some((file, rank)) {
+        return Some(GRID_SELECTED);
+    }
+    if overlay.keyboard == Some((file, rank)) {
+        return Some(GRID_CURSOR);
+    }
+    None
+}
+
+fn cell_highlight_at_screen(
+    overlay: BoardOverlay,
+    rotated: bool,
+    screen_file: u8,
+    screen_row: u8,
+) -> Option<Color> {
+    let (ifile, irank) = screen_to_internal(screen_file, screen_row, rotated);
+    cell_grid_highlight(overlay, ifile, irank)
+}
+
+fn grid_stroke_style(highlight: Option<Color>) -> Style {
+    match highlight {
+        Some(c) => Style::default().fg(c).add_modifier(Modifier::BOLD),
+        None => Style::default().fg(GRID_STROKE),
+    }
 }
 
 fn border_line(
@@ -604,24 +639,29 @@ fn border_line(
     left: char,
     mid: char,
     right: char,
-    stroke: Style,
+    dash_highlight: impl Fn(u8) -> Option<Color>,
 ) -> Line<'static> {
+    let joint_stroke = grid_stroke_style(None);
     let mut spans = vec![Span::raw(" ".repeat(AXIS_W))];
-    spans.push(Span::styled(left.to_string(), stroke));
+    spans.push(Span::styled(left.to_string(), joint_stroke));
     for file in 0..9u8 {
-        spans.push(Span::styled("─".repeat(m.cell_w), stroke));
         spans.push(Span::styled(
-            if file == 8 { right } else { mid }.to_string(),
-            stroke,
+            "─".repeat(m.cell_w),
+            grid_stroke_style(dash_highlight(file)),
         ));
+        let joint = if file == 8 { right } else { mid };
+        spans.push(Span::styled(joint.to_string(), joint_stroke));
     }
     Line::from(spans)
 }
 
-fn river_block(m: &GridMetrics, stroke: Style) -> Vec<Line<'static>> {
+fn river_block(m: &GridMetrics, overlay: BoardOverlay, rotated: bool) -> Vec<Line<'static>> {
     let inner_w = river_inner_w(m.cell_w);
     let text_row = m.glyph_sub;
-    let mut lines = vec![border_line(m, '├', '┴', '┤', stroke)];
+    let stroke = grid_stroke_style(None);
+    let mut lines = vec![border_line(m, '├', '┴', '┤', |file| {
+        cell_highlight_at_screen(overlay, rotated, file, RIVER_AFTER_SCREEN_ROW)
+    })];
     for sub in 0..m.cell_h {
         let inner = if sub == text_row {
             pad_river("楚河      77象棋      漢界", inner_w)
@@ -642,7 +682,10 @@ fn river_block(m: &GridMetrics, stroke: Style) -> Vec<Line<'static>> {
             Span::styled("│", stroke),
         ]));
     }
-    lines.push(border_line(m, '├', '┬', '┤', stroke));
+    let above_row = RIVER_AFTER_SCREEN_ROW.saturating_add(1);
+    lines.push(border_line(m, '├', '┬', '┤', |file| {
+        cell_highlight_at_screen(overlay, rotated, file, above_row)
+    }));
     lines
 }
 

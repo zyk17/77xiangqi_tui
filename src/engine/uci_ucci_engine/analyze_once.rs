@@ -1,8 +1,11 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::engine::analysis_store::EngineAnalysisStore;
 use crate::engine::analysis_types::{EngineAnalyzeResult, EngineInfoCandidate};
 
+use super::analyze_infinite_line::patch_store_from_state;
 use super::engine_core::UciUcciEngine;
 use super::info_state::{
     EngineInfoState, apply_parsed_info_to_state, select_main_line_from_candidates,
@@ -15,20 +18,34 @@ use crate::engine::protocol::parse_uci_style_info_tokens;
 use crate::runtime_log;
 
 impl UciUcciEngine {
-    /// AI 自动走子：固定深度 + 时限的一次性分析。
-    pub fn analyze_autoplay_once(&mut self, fen: &str) -> EngineAnalyzeResult {
-        self.analyze_inner(EngineAnalyzeRequest {
-            fen,
-            depth: Some(12),
-            movetime_ms: Some(500),
-            search_moves: None,
-            search_nodes: None,
-            multipv_override: Some(1),
-            cancel: None,
-        })
+    pub fn analyze_autoplay_once_with_cancel(
+        &mut self,
+        fen: &str,
+        depth: Option<i32>,
+        movetime_ms: Option<i32>,
+        search_nodes: Option<i32>,
+        progress_store: Option<&Arc<Mutex<EngineAnalysisStore>>>,
+        cancel: Option<&Arc<AtomicBool>>,
+    ) -> EngineAnalyzeResult {
+        self.analyze_inner(
+            EngineAnalyzeRequest {
+                fen,
+                depth,
+                movetime_ms,
+                search_moves: None,
+                search_nodes,
+                multipv_override: Some(1),
+                cancel: cancel.cloned(),
+            },
+            progress_store,
+        )
     }
 
-    fn analyze_inner(&mut self, req: EngineAnalyzeRequest<'_>) -> EngineAnalyzeResult {
+    fn analyze_inner(
+        &mut self,
+        req: EngineAnalyzeRequest<'_>,
+        progress_store: Option<&Arc<Mutex<EngineAnalysisStore>>>,
+    ) -> EngineAnalyzeResult {
         #[cfg(test)]
         if let Some(v) = try_test_analyze_hook(&req) {
             return v;
@@ -112,6 +129,14 @@ impl UciUcciEngine {
             }
         }
         let mut st = EngineInfoState::new();
+        let push_progress = |st: &EngineInfoState| {
+            let Some(store) = progress_store else {
+                return;
+            };
+            if let Ok(mut guard) = store.lock() {
+                patch_store_from_state(&mut guard, fen, st);
+            }
+        };
         let deadline = Instant::now() + Duration::from_secs(30);
         let mut got_best = false;
         while Instant::now() < deadline && !got_best {
@@ -138,6 +163,7 @@ impl UciUcciEngine {
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if let Some(parsed) = parse_uci_style_info_tokens(&parts) {
                             apply_parsed_info_to_state(&parsed, &mut st);
+                            push_progress(&st);
                         }
                     } else if line.starts_with("bestmove") {
                         let tok: Vec<&str> = line.split_whitespace().collect();
@@ -170,6 +196,11 @@ impl UciUcciEngine {
             st.depth_seen = main_d;
             st.mate = main_mate;
             score_cp = cand_list[0].score_cp.map(i64::from);
+        }
+        if let Some(store) = progress_store {
+            if let Ok(mut guard) = store.lock() {
+                patch_store_from_state(&mut guard, fen, &st);
+            }
         }
         EngineAnalyzeResult {
             best_move: st.best_move,

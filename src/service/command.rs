@@ -95,6 +95,8 @@ pub struct CoordinateMove {
 pub enum ParsedCommand {
     Move(CoordinateMove),
     Slash(SlashCommand),
+    /// `/pastefen` 后整段 FEN（含空格），单独解析避免与无参 slash 混淆。
+    PasteFen(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +104,7 @@ pub enum CommandParseError {
     Empty,
     UnknownSlash(String),
     InvalidMove(String),
+    InvalidPasteFen,
 }
 
 impl CommandParseError {
@@ -112,6 +115,7 @@ impl CommandParseError {
             Self::InvalidMove(value) => {
                 format!("非法输入：{value}。普通输入必须满足 [a-i][0-9][a-i][0-9]。")
             }
+            Self::InvalidPasteFen => "用法：/pastefen <FEN>（FEN 可含空格）。".to_string(),
         }
     }
 }
@@ -121,17 +125,33 @@ pub struct CommandService;
 
 impl CommandService {
     pub fn parse(&self, input: &str) -> Result<ParsedCommand, CommandParseError> {
-        let command = input.trim().to_ascii_lowercase();
+        let command = input.trim();
         if command.is_empty() {
             return Err(CommandParseError::Empty);
         }
         if command.starts_with('/') {
-            return SlashCommand::from_name(&command)
-                .map(ParsedCommand::Slash)
-                .ok_or(CommandParseError::UnknownSlash(command));
+            return parse_slash_command(command);
         }
-        parse_coordinate_move(&command).map(ParsedCommand::Move)
+        parse_coordinate_move(&command.to_ascii_lowercase()).map(ParsedCommand::Move)
     }
+}
+
+/// 首个空白前为命令名（小写），之后为参数（FEN 原样保留大小写）。
+fn parse_slash_command(input: &str) -> Result<ParsedCommand, CommandParseError> {
+    let rest = input.trim_start_matches('/');
+    let (name_part, args) = rest
+        .split_once(char::is_whitespace)
+        .map_or((rest, ""), |(n, a)| (n, a.trim()));
+    let name = format!("/{}", name_part.to_ascii_lowercase());
+    if name == SlashCommand::PasteFen.name() {
+        if args.is_empty() {
+            return Err(CommandParseError::InvalidPasteFen);
+        }
+        return Ok(ParsedCommand::PasteFen(args.to_string()));
+    }
+    SlashCommand::from_name(&name)
+        .map(ParsedCommand::Slash)
+        .ok_or(CommandParseError::UnknownSlash(input.trim().to_string()))
 }
 
 fn parse_coordinate_move(value: &str) -> Result<CoordinateMove, CommandParseError> {
@@ -170,7 +190,7 @@ mod tests {
                 assert_eq!(mv.to_file, 4);
                 assert_eq!(mv.to_rank, 2);
             }
-            ParsedCommand::Slash(_) => panic!("expected move"),
+            ParsedCommand::Slash(_) | ParsedCommand::PasteFen(_) => panic!("expected move"),
         }
     }
 
@@ -184,5 +204,20 @@ mod tests {
     fn parse_invalid_move_fails() {
         let err = CommandService.parse("a0j0").expect_err("invalid move");
         assert_eq!(err, CommandParseError::InvalidMove("a0j0".to_string()));
+    }
+
+    #[test]
+    fn parse_pastefen_with_spaces() {
+        let fen = "r3kabn1/4a2r1/1c2b4/pc1rp1c1p/2p1c4/6p2/p1r5p/8n/4k4/2balab2 w - - 0 1";
+        let parsed = CommandService
+            .parse(&format!("/pastefen {fen}"))
+            .expect("pastefen");
+        assert_eq!(parsed, ParsedCommand::PasteFen(fen.to_string()));
+    }
+
+    #[test]
+    fn parse_pastefen_without_fen_fails() {
+        let err = CommandService.parse("/pastefen").expect_err("need fen");
+        assert_eq!(err, CommandParseError::InvalidPasteFen);
     }
 }

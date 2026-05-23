@@ -45,6 +45,16 @@ pub fn screen_to_internal(file: u8, screen_row: u8, rotated: bool) -> (u8, u8) {
     }
 }
 
+/// 屏幕方向键增量 → 内部 `(dfile, drank)`（`rotated` 时棋盘上下左右与内部轴相反）。
+#[inline]
+pub fn cursor_delta_internal(screen_dfile: i8, screen_drank: i8, rotated: bool) -> (i8, i8) {
+    if rotated {
+        (-screen_dfile, -screen_drank)
+    } else {
+        (screen_dfile, screen_drank)
+    }
+}
+
 #[inline]
 #[cfg(test)]
 pub fn internal_to_screen(file: u8, rank: u8, rotated: bool) -> (u8, u8) {
@@ -77,5 +87,13 @@ mod tests {
     fn screen_map_flips_when_rotated() {
         assert_eq!(screen_to_internal(0, 9, true), (8, 0));
         assert_eq!(uci_cell_label(8, 0), "i9");
+    }
+
+    #[test]
+    fn cursor_delta_follows_screen_when_rotated() {
+        assert_eq!(cursor_delta_internal(0, -1, false), (0, -1));
+        assert_eq!(cursor_delta_internal(1, 0, false), (1, 0));
+        assert_eq!(cursor_delta_internal(0, -1, true), (0, 1));
+        assert_eq!(cursor_delta_internal(1, 0, true), (-1, 0));
     }
 }

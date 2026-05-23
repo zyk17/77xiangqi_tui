@@ -4,7 +4,7 @@ use crate::{
     book::{BookConfig, BookResponse},
     engine::{EngineAnalyzeResult, uci_ucci_engine::info_state::uci_xiangqi_best_ready},
     game::GameState,
-    service::{AnalysisService, BookService, book::BookQuery},
+    service::AnalysisService,
     xiangqi::Side,
 };
 
@@ -92,55 +92,23 @@ pub fn best_uci_from_engine(result: &EngineAnalyzeResult) -> Option<String> {
 pub struct AutoplayService;
 
 impl AutoplayService {
-    pub fn query_book_display(
-        book: &BookService,
+    /// 将已完成的棋库查询结果写入局面（主线程；供异步棋库 poll 使用）。
+    pub fn apply_book_display_from_response(
         analysis: &AnalysisService,
         game: &mut GameState,
-        cfg: &BookConfig,
-        fen: &str,
+        response: &BookResponse,
         set_query_arrow: bool,
     ) -> bool {
-        if !should_query_book_for_display(cfg) {
+        if !book_has_preview(response) {
             return false;
         }
-        let response = book.query(
-            BookQuery {
-                fen,
-                move_uci: None,
-                ignore_play_opening_settings: false,
-            },
-            cfg,
-        );
-        if !book_has_preview(&response) {
-            return false;
-        }
-        analysis.apply_book_response(&mut game.analysis, &response);
+        analysis.apply_book_response(&mut game.analysis, response);
         if set_query_arrow {
-            if let Some(uci) = best_uci_from_book(&response) {
+            if let Some(uci) = best_uci_from_book(response) {
                 Self::set_pending_arrow(game, &uci);
             }
         }
         true
-    }
-
-    pub fn try_book_autoplay_move_for_game(
-        book: &BookService,
-        game: &GameState,
-        cfg: &BookConfig,
-        fen: &str,
-    ) -> Option<String> {
-        if !should_try_book_for_autoplay(game, cfg) {
-            return None;
-        }
-        let response = book.query(
-            BookQuery {
-                fen,
-                move_uci: None,
-                ignore_play_opening_settings: false,
-            },
-            cfg,
-        );
-        best_uci_from_book(&response)
     }
 
     pub fn set_pending_arrow(game: &mut GameState, uci: &str) {

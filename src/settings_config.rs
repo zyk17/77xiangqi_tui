@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::engine::EngineProtocol;
+use crate::engine::{EngineProtocol, EngineSearchLimit};
 
 const CONFIG_FILE: &str = "xiangqi_tui.conf";
 const KEY_ENGINE_PATH: &str = "engine_path";
@@ -12,6 +12,10 @@ const KEY_ENGINE_THREADS: &str = "engine_threads";
 const KEY_ENGINE_HASH_MB: &str = "engine_hash_mb";
 const KEY_ENGINE_SKILL: &str = "engine_skill";
 const KEY_ENGINE_MULTI_PV: &str = "engine_multi_pv";
+const KEY_ENGINE_SEARCH_LIMIT: &str = "engine_search_limit";
+const KEY_ENGINE_MOVETIME_MS: &str = "engine_movetime_ms";
+const KEY_ENGINE_SEARCH_DEPTH: &str = "engine_search_depth";
+const KEY_ENGINE_SEARCH_NODES: &str = "engine_search_nodes";
 const KEY_BOOK_LOCAL_PATH: &str = "book_local_path";
 const KEY_BOOK_LOCAL_ENABLED: &str = "book_local_enabled";
 const KEY_BOOK_CLOUD_ENABLED: &str = "book_cloud_enabled";
@@ -65,6 +69,49 @@ pub fn load_engine_multi_pv() -> u8 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1)
         .clamp(1, 5)
+}
+
+pub fn load_engine_search_limit() -> EngineSearchLimit {
+    read_key(CONFIG_FILE, KEY_ENGINE_SEARCH_LIMIT)
+        .map(|v| EngineSearchLimit::from_config_key(&v))
+        .unwrap_or_default()
+}
+
+pub fn load_engine_movetime_ms() -> u32 {
+    read_key(CONFIG_FILE, KEY_ENGINE_MOVETIME_MS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000)
+        .clamp(100, 86_400_000)
+}
+
+pub fn load_engine_search_depth() -> u8 {
+    read_key(CONFIG_FILE, KEY_ENGINE_SEARCH_DEPTH)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12)
+        .clamp(1, 64)
+}
+
+pub fn load_engine_search_nodes() -> u32 {
+    read_key(CONFIG_FILE, KEY_ENGINE_SEARCH_NODES)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500_000)
+        .clamp(1_000, 500_000_000)
+}
+
+pub fn save_engine_search_limit(mode: EngineSearchLimit) -> std::io::Result<()> {
+    write_key(CONFIG_FILE, KEY_ENGINE_SEARCH_LIMIT, mode.config_key())
+}
+
+pub fn save_engine_movetime_ms(ms: u32) -> std::io::Result<()> {
+    write_key(CONFIG_FILE, KEY_ENGINE_MOVETIME_MS, &ms.to_string())
+}
+
+pub fn save_engine_search_depth(depth: u8) -> std::io::Result<()> {
+    write_key(CONFIG_FILE, KEY_ENGINE_SEARCH_DEPTH, &depth.to_string())
+}
+
+pub fn save_engine_search_nodes(nodes: u32) -> std::io::Result<()> {
+    write_key(CONFIG_FILE, KEY_ENGINE_SEARCH_NODES, &nodes.to_string())
 }
 
 pub fn load_book_local_path() -> String {

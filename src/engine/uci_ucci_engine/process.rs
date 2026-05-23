@@ -56,7 +56,7 @@ fn try_clear_macos_quarantine(path: &Path) {
         .output();
     match out {
         Ok(o) if o.status.success() => {
-            runtime_log::info(format!(
+            runtime_log::debug(format!(
                 "[engine_spawn] auto_clear_quarantine_ok path={}",
                 path.display()
             ));
@@ -139,7 +139,7 @@ impl UciUcciEngine {
             if !executable {
                 match try_make_unix_executable(path_obj) {
                     Ok(true) => {
-                        runtime_log::info(format!(
+                        runtime_log::debug(format!(
                             "[engine_spawn] auto_chmod_ok path={}",
                             path_owned
                         ));
