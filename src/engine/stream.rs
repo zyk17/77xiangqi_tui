@@ -23,8 +23,14 @@ pub struct EngineStreamRuntime {
 
 impl Default for EngineStreamRuntime {
     fn default() -> Self {
+        Self::new(Arc::new(Mutex::new(UciUcciEngine::new(None))))
+    }
+}
+
+impl EngineStreamRuntime {
+    pub fn new(engine: Arc<Mutex<UciUcciEngine>>) -> Self {
         Self {
-            engine: Arc::new(Mutex::new(UciUcciEngine::new(None))),
+            engine,
             store: Arc::new(Mutex::new(EngineAnalysisStore::empty_for_fen(""))),
             stop: Arc::new(AtomicBool::new(false)),
             join: Mutex::new(None),
@@ -32,9 +38,7 @@ impl Default for EngineStreamRuntime {
             active_fen: Mutex::new(String::new()),
         }
     }
-}
 
-impl EngineStreamRuntime {
     pub fn store_revision(&self) -> u64 {
         lock_mutex(&self.store).revision
     }

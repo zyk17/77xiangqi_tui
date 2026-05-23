@@ -1,8 +1,6 @@
 //! 全规则合法性（几何 + 飞将 + 照将）。
 
 use super::board::Board90;
-use super::side::Side;
-
 pub fn uci_is_fully_legal(engine_fen: &str, uci: &str) -> bool {
     let Some((board, side)) = Board90::from_fen_with_side(engine_fen.trim()) else {
         return false;

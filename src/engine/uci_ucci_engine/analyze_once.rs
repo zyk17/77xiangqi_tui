@@ -19,6 +19,19 @@ impl UciUcciEngine {
         self.analyze_inner(req)
     }
 
+    /// AI 自动走子：固定深度 + 时限的一次性分析。
+    pub fn analyze_autoplay_once(&mut self, fen: &str) -> EngineAnalyzeResult {
+        self.analyze_inner(EngineAnalyzeRequest {
+            fen,
+            depth: Some(12),
+            movetime_ms: Some(500),
+            search_moves: None,
+            search_nodes: None,
+            multipv_override: Some(1),
+            cancel: None,
+        })
+    }
+
     pub fn analyze_review_line(
         &mut self,
         fen: &str,

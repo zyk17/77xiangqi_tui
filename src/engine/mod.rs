@@ -17,7 +17,6 @@ pub mod uci_ucci_engine;
 pub use analysis_store::EngineAnalysisStore;
 pub use analysis_types::EngineAnalyzeResult;
 pub use stream::EngineStreamRuntime;
-pub use uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineProtocol {

@@ -2,7 +2,7 @@
 
 use ratatui::layout::Rect;
 
-use crate::app::{BattleButton, SettingsSection};
+use crate::app::{settings_field::SettingsField, BattleButton};
 
 /// 顶栏两个 Tab 的命中区（与 `render_tabs` 的 50/50 分栏一致）。
 #[derive(Debug, Clone, Copy)]
@@ -23,8 +23,8 @@ pub struct BattleRegions {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SettingsRegions {
-    pub engine: Rect,
-    pub book: Rect,
+    pub fields: [(SettingsField, Rect); SettingsField::ALL.len()],
+    pub field_count: usize,
     pub command_input: Rect,
 }
 

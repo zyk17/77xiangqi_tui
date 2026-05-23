@@ -128,9 +128,9 @@ fn parse_coordinate_move(value: &str) -> Result<CoordinateMove, CommandParseErro
     let bytes = value.as_bytes();
     if bytes.len() != 4
         || !matches!(bytes[0], b'a'..=b'i')
-        || !matches!(bytes[1], b'0'..=b'9')
+        || !bytes[1].is_ascii_digit()
         || !matches!(bytes[2], b'a'..=b'i')
-        || !matches!(bytes[3], b'0'..=b'9')
+        || !bytes[3].is_ascii_digit()
     {
         return Err(CommandParseError::InvalidMove(value.to_string()));
     }

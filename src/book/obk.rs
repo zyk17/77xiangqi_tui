@@ -421,7 +421,9 @@ pub fn optimize_idx_sidecar(
                     skipped_rows += 1;
                 }
                 if let Some(ref mut cb) = on_progress {
-                    if processed == total_rows || processed.is_multiple_of(progress_stride) {
+                    if processed == total_rows
+                        || (progress_stride > 0 && processed % progress_stride == 0)
+                    {
                         cb(processed, total_rows);
                     }
                 }

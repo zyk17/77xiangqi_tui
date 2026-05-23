@@ -34,6 +34,15 @@ const PIECE_FILL_PERCENT: usize = 80;
 /// 画完 screen_row 4 后插河界
 const RIVER_AFTER_SCREEN_ROW: u8 = 4;
 
+/// 棋盘绘制时的选子、键盘光标与箭头叠加状态。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BoardOverlay {
+    pub last_arrow: Option<BoardArrow>,
+    pub pending_arrow: Option<BoardArrow>,
+    pub selected: Option<(u8, u8)>,
+    pub keyboard: Option<(u8, u8)>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct GridMetrics {
     cell_w: usize,
@@ -244,14 +253,12 @@ pub fn render_grid_board(
     area: Rect,
     board: &Board90,
     rotated: bool,
-    last_arrow: Option<BoardArrow>,
-    pending_arrow: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
+    overlay: BoardOverlay,
 ) -> Rect {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(Span::styled(
-            if pending_arrow.is_some() {
+            if overlay.pending_arrow.is_some() {
                 "A 棋盘 · 提示"
             } else {
                 "A 棋盘"
@@ -276,15 +283,7 @@ pub fn render_grid_board(
     let mut lines = Vec::new();
     lines.push(border_line(&m, '┌', '┬', '┐', line_stroke));
     for screen_row in 0..10_u8 {
-        lines.extend(rank_block(
-            &m,
-            board,
-            screen_row,
-            rotated,
-            last_arrow,
-            pending_arrow,
-            selected,
-        ));
+        lines.extend(rank_block(&m, board, screen_row, rotated, overlay));
         if screen_row == 9 {
             break;
         }
@@ -337,9 +336,7 @@ pub fn hit_board_cell(
     if rel_col >= grid_w || rel_row >= grid_h {
         return None;
     }
-    let Some(screen_row) = screen_row_at_line(&m, rel_row) else {
-        return None;
-    };
+    let screen_row = screen_row_at_line(&m, rel_row)?;
     let file = file_at_column(&m, rel_col)?;
     Some(screen_to_internal(file, screen_row, rotated))
 }
@@ -445,9 +442,7 @@ fn rank_block(
     board: &Board90,
     screen_row: u8,
     rotated: bool,
-    last: Option<BoardArrow>,
-    pending: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
+    overlay: BoardOverlay,
 ) -> Vec<Line<'static>> {
     let (_, irank) = screen_to_internal(0, screen_row, rotated);
     let axis = 9 - irank;
@@ -465,17 +460,7 @@ fn rank_block(
             for file in 0..9u8 {
                 let (ifile, irank) = screen_to_internal(file, screen_row, rotated);
                 let piece = board.get(ifile, irank);
-                spans.extend(cell_spans(
-                    m,
-                    board,
-                    piece,
-                    ifile,
-                    irank,
-                    sub,
-                    last,
-                    pending,
-                    selected,
-                ));
+                spans.extend(cell_spans(m, board, piece, ifile, irank, sub, overlay));
                 if file != 8 {
                     spans.push(Span::styled("│", Style::default().fg(GRID_STROKE)));
                 }
@@ -493,13 +478,11 @@ fn cell_spans(
     file: u8,
     rank: u8,
     sub: usize,
-    last: Option<BoardArrow>,
-    pending: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
+    overlay: BoardOverlay,
 ) -> Vec<Span<'static>> {
     let has_piece = piece_label(cell).is_some();
     if !has_piece {
-        let style = empty_cell_style(board, file, rank, last, pending, selected);
+        let style = empty_cell_style(board, file, rank, overlay);
         return vec![Span::styled(fit_display("", m.cell_w), style)];
     }
 
@@ -513,7 +496,7 @@ fn cell_spans(
     let base = piece_label(cell)
         .map(|(_, red)| piece_cell_style(red))
         .unwrap_or(text_dim());
-    let style = apply_highlights(base, board, file, rank, last, pending, selected);
+    let style = apply_highlights(base, board, file, rank, overlay);
 
     let right_w = m.cell_w.saturating_sub(m.piece_pad_w + m.piece_w);
     let mut spans = Vec::with_capacity(3);
@@ -602,14 +585,20 @@ fn apply_highlights(
     board: &Board90,
     file: u8,
     rank: u8,
-    last: Option<BoardArrow>,
-    pending: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
+    overlay: BoardOverlay,
 ) -> Style {
-    if selected == Some((file, rank)) {
-        style = style.bg(Color::DarkGray);
+    if overlay.selected == Some((file, rank)) {
+        style = style.bg(Color::Rgb(60, 90, 60));
     }
-    if let Some((bg, bold)) = move_highlight_overlay(board, file, rank, last, pending) {
+    if overlay.keyboard == Some((file, rank)) {
+        style = style
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD);
+    }
+    if let Some((bg, bold)) =
+        move_highlight_overlay(board, file, rank, overlay.last_arrow, overlay.pending_arrow)
+    {
         style = style.bg(bg);
         if bold {
             style = style.add_modifier(Modifier::BOLD);
@@ -618,23 +607,24 @@ fn apply_highlights(
     style
 }
 
-fn empty_cell_style(
-    board: &Board90,
-    file: u8,
-    rank: u8,
-    last: Option<BoardArrow>,
-    pending: Option<BoardArrow>,
-    selected: Option<(u8, u8)>,
-) -> Style {
-    if let Some((bg, bold)) = move_highlight_overlay(board, file, rank, last, pending) {
+fn empty_cell_style(board: &Board90, file: u8, rank: u8, overlay: BoardOverlay) -> Style {
+    if let Some((bg, bold)) =
+        move_highlight_overlay(board, file, rank, overlay.last_arrow, overlay.pending_arrow)
+    {
         let mut s = Style::default().bg(bg);
         if bold {
             s = s.add_modifier(Modifier::BOLD);
         }
         return s;
     }
-    if selected == Some((file, rank)) {
-        return Style::default().bg(Color::DarkGray);
+    if overlay.keyboard == Some((file, rank)) {
+        return Style::default()
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD);
+    }
+    if overlay.selected == Some((file, rank)) {
+        return Style::default().bg(Color::Rgb(60, 90, 60));
     }
     text_dim()
 }
@@ -664,7 +654,7 @@ fn river_block(m: &GridMetrics, stroke: Style) -> Vec<Line<'static>> {
     let mut lines = vec![border_line(m, '├', '┴', '┤', stroke)];
     for sub in 0..m.cell_h {
         let inner = if sub == text_row {
-            pad_river("楚河 77象棋 漢界", inner_w)
+            pad_river("楚河      77象棋      漢界", inner_w)
         } else {
             fit_display("", inner_w)
         };

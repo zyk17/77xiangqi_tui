@@ -16,5 +16,4 @@ pub mod ui_helpers;
 mod test_hook;
 
 pub use engine_core::UciUcciEngine;
-pub(crate) use engine_path::same_engine_path;
 pub use types::EngineConfigureRequest;

@@ -1,6 +1,8 @@
 mod board;
+mod format;
 mod hit;
 mod layout;
+pub mod settings_form;
 mod style;
 
 use ratatui::{
@@ -12,12 +14,11 @@ use ratatui::{
 };
 
 use self::style::{
-    accent, active_flag, border_active, border_focused, border_normal, button_idle, button_on,
-    cursor_cell, highlight, input_prompt, suggestion, tab_active, tab_idle,
-    text as text_style, text_bold, text_dim,
+    border_active, border_focused, border_normal, button_idle, button_on, cursor_cell, highlight,
+    input_prompt, suggestion, tab_active, tab_idle, text as text_style, text_bold, text_dim,
 };
 
-use crate::app::{App, BattleButton, Focus, Screen, SettingsSection, TopTab};
+use crate::app::{App, BattleButton, Focus, Screen, SettingsField, TopTab};
 
 pub use layout::UiRegions;
 
@@ -31,7 +32,7 @@ pub enum HitTarget {
     TopTab(TopTab),
     BattleButton(BattleButton),
     CommandInput,
-    SettingsSection(SettingsSection),
+    SettingsField(SettingsField),
     BoardCell(u8, u8),
 }
 
@@ -105,10 +106,20 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::TabRegio
     }
 }
 
+fn command_input_height(app: &App) -> u16 {
+    let mut h = 3u16;
+    if app.screen == Screen::Battle && app.input.slash_menu_open() {
+        let n = app.input.suggestions().len() as u16;
+        h = h.saturating_add(n.min(14));
+    }
+    h.max(5)
+}
+
 fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::BattleRegions {
+    let cmd_h = command_input_height(app);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(5)])
+        .constraints([Constraint::Min(0), Constraint::Length(cmd_h)])
         .split(area);
 
     // 棋盘占对弈区大部分宽度（接近用户红框），右侧按钮/评估。
@@ -133,9 +144,12 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Battle
         board_area,
         &app.game.board,
         app.game.rotated,
-        app.game.last_move_arrow,
-        app.game.pending_arrow,
-        app.game.selected_cell,
+        board::BoardOverlay {
+            last_arrow: app.game.last_move_arrow,
+            pending_arrow: app.game.pending_arrow,
+            selected: app.game.selected_cell,
+            keyboard: board_keyboard_cell(app),
+        },
     );
     let (buttons, button_count) = render_buttons(frame, right[0], app);
     render_eval_panel(frame, right[1], app);
@@ -152,91 +166,73 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Battle
 fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::SettingsRegions {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(5)])
+        .constraints([
+            Constraint::Length(SettingsField::ALL.len() as u16 + 2),
+            Constraint::Min(0),
+            Constraint::Length(5),
+        ])
         .split(area);
-    let chunks = Layout::default()
+
+    let form_inner = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(9), Constraint::Length(7), Constraint::Min(0)])
+        .margin(1)
+        .constraints([Constraint::Min(SettingsField::ALL.len() as u16)])
         .split(rows[0]);
-
-    let engine_lines = vec![
-        Line::from(format!("路径: {}", display_or_placeholder(&app.engine.path))),
-        Line::from(format!("协议: {}", app.engine.protocol.label())),
-        Line::from(format!("线程: {}", app.engine.threads)),
-        Line::from(format!("Hash(MB): {}", app.engine.hash_mb)),
-        Line::from(format!("Skill: {}", app.engine.skill_level)),
-        Line::from(format!("MultiPV: {}", app.engine.multi_pv)),
-    ];
+    let form_regions = settings_form::render_settings_form(frame, form_inner[0], app);
     frame.render_widget(
-        Paragraph::new(engine_lines)
-            .style(text_style())
-            .block(section_block(
-                "引擎设置",
-                app.focus == Focus::SettingsSection(SettingsSection::Engine),
-            ))
-            .wrap(Wrap { trim: true }),
-        chunks[0],
+        settings_form::form_block(matches!(app.focus, Focus::SettingsField(_))),
+        rows[0],
     );
 
-    let book_lines = vec![
-        Line::from(format!("本地路径: {}", display_or_placeholder(&app.book.local_path))),
-        Line::from(format!("启用本地库: {}", yes_no(app.book.local_enabled))),
-        Line::from(format!("启用云库: {}", yes_no(app.book.cloud_enabled))),
-        Line::from(format!("选取模式: {}", app.book.pick_mode)),
-        Line::from(format!("最大步数: {}", app.book.max_halfmoves)),
-    ];
-    frame.render_widget(
-        Paragraph::new(book_lines)
-            .style(text_style())
-            .block(section_block(
-                "开局库设置",
-                app.focus == Focus::SettingsSection(SettingsSection::OpeningBook),
-            ))
-            .wrap(Wrap { trim: true }),
-        chunks[1],
-    );
-
-    let hint = if app.focus == Focus::SettingsSection(SettingsSection::Engine) {
-        "下方 C 区输入引擎可执行文件路径，Enter 保存到 xiangqi_tui.conf。"
-    } else {
-        "参考 GUI 仓库实现细节；逻辑对照见 NextStep.md。"
-    };
+    let hint = settings_form::settings_hint(app.settings_field);
     frame.render_widget(
         Paragraph::new(hint)
             .style(text_style())
             .block(block("说明"))
             .wrap(Wrap { trim: true }),
-        chunks[2],
+        rows[1],
     );
-    render_command_input(frame, rows[1], app);
+    render_command_input(frame, rows[2], app);
     layout::SettingsRegions {
-        engine: chunks[0],
-        book: chunks[1],
-        command_input: rows[1],
+        fields: form_regions.fields,
+        field_count: form_regions.field_count,
+        command_input: rows[2],
     }
 }
 
 fn render_command_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let settings_engine_edit = app.screen == Screen::Settings
-        && app.focus == Focus::SettingsSection(SettingsSection::Engine);
-    let title = if settings_engine_edit {
-        "C 引擎路径*"
+    let settings_text_edit =
+        app.screen == Screen::Settings && app.focus == Focus::CommandInput;
+    let title = if settings_text_edit {
+        "C 设置输入*"
     } else if app.focus == Focus::CommandInput {
         "C 输入*"
+    } else if app.screen == Screen::Battle && matches!(app.focus, Focus::Board) {
+        "C 输入 (:走子 /命令 Tab/→补全)"
     } else {
         "C 输入"
     };
     let input_line = render_input_line(app);
     let mut input_lines = vec![input_line];
-    let suggestions = app.input.suggestions();
-    if !suggestions.is_empty() {
-        let rendered = suggestions
-            .into_iter()
-            .take(3)
-            .map(|command| format!("{} {}", command.name(), command.description()))
-            .collect::<Vec<_>>()
-            .join("   ");
-        input_lines.push(Line::from(Span::styled(rendered, suggestion())));
+    if app.input.slash_menu_open() {
+        let suggestions = app.input.suggestions();
+        let pick = app.input.slash_pick_index();
+        let window = suggestions.len().min(14);
+        let start = if suggestions.len() <= window {
+            0
+        } else {
+            pick.saturating_sub(window / 2)
+                .min(suggestions.len().saturating_sub(window))
+        };
+        for (i, command) in suggestions.iter().enumerate().skip(start).take(window) {
+            let marker = if i == pick { "▸" } else { " " };
+            let style = if i == pick { highlight() } else { suggestion() };
+            input_lines.push(Line::from(vec![
+                Span::styled(format!("{marker} "), style),
+                Span::styled(command.name().to_string(), style),
+                Span::styled(format!("  {}", command.description()), text_dim()),
+            ]));
+        }
     }
     frame.render_widget(
         Paragraph::new(input_lines)
@@ -292,14 +288,22 @@ fn render_buttons(
 
 fn render_button(frame: &mut Frame<'_>, area: Rect, button: BattleButton, app: &App) {
     let focused = app.focus == Focus::BattleButton(button);
-    let active = match button {
-        BattleButton::RedAi => app.game.red_ai,
-        BattleButton::BlackAi => app.game.black_ai,
-        BattleButton::QueryMode => app.game.query_mode,
-        BattleButton::RealtimeEval => app.game.realtime_eval,
-        _ => false,
+    let disabled = button.is_disabled(app);
+    let active = if disabled {
+        false
+    } else {
+        match button {
+            BattleButton::RedAi => app.game.red_ai,
+            BattleButton::BlackAi => app.game.black_ai,
+            BattleButton::QueryMode => app.game.query_mode,
+            BattleButton::RealtimeEval => app.game.realtime_eval,
+            _ => false,
+        }
     };
-    frame.render_widget(button_widget(button.label(), active, focused), area);
+    frame.render_widget(
+        button_widget(button.label(), active, focused, disabled, button),
+        area,
+    );
 }
 
 fn render_eval_panel(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -318,8 +322,8 @@ fn render_eval_panel(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Row::new(vec![
             app.game.analysis.time_text.clone(),
             app.game.analysis.depth.to_string(),
-            app.game.analysis.nps.to_string(),
-            app.game.analysis.nodes.to_string(),
+            format::format_count_k(app.game.analysis.nps),
+            format::format_count_k(app.game.analysis.nodes),
         ]),
         Row::new(vec![
             "分数".to_string(),
@@ -337,10 +341,10 @@ fn render_eval_panel(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let table = Table::new(
         score_rows,
         [
-            Constraint::Percentage(24),
-            Constraint::Percentage(24),
-            Constraint::Percentage(24),
-            Constraint::Percentage(28),
+            Constraint::Length(7),
+            Constraint::Length(6),
+            Constraint::Length(8),
+            Constraint::Min(10),
         ],
     )
     .block(block(&format!("D 实时评估 [{}]", app.game.analysis.source)))
@@ -349,23 +353,18 @@ fn render_eval_panel(frame: &mut Frame<'_>, area: Rect, app: &App) {
     .row_highlight_style(highlight());
     frame.render_widget(table, sections[0]);
 
-    let pv_lines = if app.game.analysis.pv.is_empty() {
+    let pv = if app.game.history.at_head() {
+        &app.game.analysis.pv
+    } else {
+        app.game.history.pv_at_view()
+    };
+    let pv_lines = if pv.is_empty() {
         vec![Line::from(Span::styled("PV: --", text_dim()))]
     } else {
-        app.game
-            .analysis
-            .pv
-            .chunks(8)
-            .take(2)
-            .enumerate()
-            .map(|(index, chunk)| {
-                let prefix = if index == 0 { "PV1" } else { "PV2" };
-                Line::from(Span::styled(
-                    format!("{prefix}: {}", chunk.join(" ")),
-                    text_style(),
-                ))
-            })
-            .collect()
+        vec![Line::from(Span::styled(
+            format!("PV: {}", pv.join(" ")),
+            text_style(),
+        ))]
     };
     frame.render_widget(
         Paragraph::new(pv_lines)
@@ -382,11 +381,17 @@ fn tab_widget(title: &str, active: bool, focused: bool) -> Paragraph<'static> {
         .block(section_block(title, focused))
 }
 
-fn button_widget(title: &str, active: bool, focused: bool) -> Paragraph<'static> {
+fn button_widget(
+    title: &str,
+    active: bool,
+    focused: bool,
+    disabled: bool,
+    button: BattleButton,
+) -> Paragraph<'static> {
     Paragraph::new(title.to_string())
         .alignment(Alignment::Center)
-        .style(if active { button_on() } else { button_idle() })
-        .block(button_block(active, focused))
+        .style(button_text_style(button, active, focused, disabled))
+        .block(button_block(active, focused, disabled))
 }
 
 fn block(title: &str) -> Block<'static> {
@@ -410,8 +415,10 @@ fn section_block(title: &str, focused: bool) -> Block<'static> {
         ))
 }
 
-fn button_block(active: bool, focused: bool) -> Block<'static> {
-    let border_style = if focused {
+fn button_block(active: bool, focused: bool, disabled: bool) -> Block<'static> {
+    let border_style = if disabled {
+        border_normal()
+    } else if focused {
         border_focused()
     } else if active {
         border_active()
@@ -419,6 +426,29 @@ fn button_block(active: bool, focused: bool) -> Block<'static> {
         border_normal()
     };
     Block::default().borders(Borders::ALL).border_style(border_style)
+}
+
+fn button_text_style(
+    button: BattleButton,
+    active: bool,
+    focused: bool,
+    disabled: bool,
+) -> ratatui::style::Style {
+    use ratatui::style::Modifier;
+    if disabled {
+        return text_dim();
+    }
+    if active {
+        return match button {
+            BattleButton::RedAi => style::piece_red().add_modifier(Modifier::BOLD),
+            BattleButton::BlackAi => style::piece_black().add_modifier(Modifier::BOLD),
+            _ => button_on(),
+        };
+    }
+    if focused {
+        return highlight();
+    }
+    button_idle()
 }
 
 fn render_input_line(app: &App) -> Line<'static> {
@@ -443,7 +473,7 @@ fn render_input_line(app: &App) -> Line<'static> {
     Line::from(spans)
 }
 
-fn display_or_placeholder(value: &str) -> String {
+pub(crate) fn display_or_placeholder(value: &str) -> String {
     if value.is_empty() {
         "<未设置>".to_string()
     } else {
@@ -451,8 +481,16 @@ fn display_or_placeholder(value: &str) -> String {
     }
 }
 
-fn yes_no(value: bool) -> &'static str {
+pub(crate) fn yes_no(value: bool) -> &'static str {
     if value { "是" } else { "否" }
+}
+
+fn board_keyboard_cell(app: &App) -> Option<(u8, u8)> {
+    if app.screen == Screen::Battle && matches!(app.focus, Focus::Board) {
+        Some(app.board_cursor)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -517,7 +555,7 @@ mod render_tests {
         eprintln!("wrote {}", path.display());
 
         assert!(
-            dump.contains("上一步") || dump.contains("上 一 步"),
+            dump.contains("上一步") || dump.contains("◀"),
             "row3 buttons should be visible in dump"
         );
         assert!(

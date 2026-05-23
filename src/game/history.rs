@@ -5,6 +5,8 @@ pub struct MoveHistory {
     fens: Vec<String>,
     /// `moves[i]`：从 `fens[i]` 走到 `fens[i+1]` 的 UCI。
     moves: Vec<String>,
+    /// `pv_by_fen[i]`：离开 `fens[i]` 时（走 `moves[i]` 前）引擎/棋库最后一次 PV。
+    pv_by_fen: Vec<Vec<String>>,
     index: usize,
 }
 
@@ -19,6 +21,7 @@ impl MoveHistory {
         Self {
             fens: vec![STARTPOS_FEN.to_string()],
             moves: Vec::new(),
+            pv_by_fen: vec![Vec::new()],
             index: 0,
         }
     }
@@ -53,14 +56,35 @@ impl MoveHistory {
         self.index + 1 == self.fens.len()
     }
 
-    pub fn push_move(&mut self, fen_after: String, uci: String) {
+    pub fn halfmove_count(&self) -> usize {
+        self.moves.len()
+    }
+
+    pub fn pv_at_view(&self) -> &[String] {
+        self.pv_by_fen
+            .get(self.index)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn push_move(&mut self, fen_after: String, uci: String, pv_snapshot: Vec<String>) {
         if self.index + 1 < self.fens.len() {
             self.fens.truncate(self.index + 1);
             self.moves.truncate(self.index);
+            self.pv_by_fen.truncate(self.index + 1);
         }
+        self.ensure_pv_len();
+        self.pv_by_fen[self.index] = pv_snapshot;
         self.moves.push(uci);
         self.fens.push(fen_after);
+        self.pv_by_fen.push(Vec::new());
         self.index = self.fens.len() - 1;
+    }
+
+    fn ensure_pv_len(&mut self) {
+        while self.pv_by_fen.len() < self.fens.len() {
+            self.pv_by_fen.push(Vec::new());
+        }
     }
 
     /// 悔棋：仅在最新步删除最后一手（截断历史）。
@@ -70,6 +94,9 @@ impl MoveHistory {
         }
         self.fens.pop();
         self.moves.pop();
+        if self.pv_by_fen.len() > self.fens.len() {
+            self.pv_by_fen.pop();
+        }
         self.index = self.fens.len() - 1;
         true
     }
@@ -98,6 +125,7 @@ impl MoveHistory {
     pub fn reset_to_fen(&mut self, fen: String) {
         self.fens = vec![fen];
         self.moves.clear();
+        self.pv_by_fen = vec![Vec::new()];
         self.index = 0;
     }
 }
@@ -111,7 +139,7 @@ mod tests {
     fn undo_truncates_tail() {
         let mut h = MoveHistory::new_game();
         let next = try_apply_fully_legal_uci(h.current_fen(), "h2e2").expect("move");
-        h.push_move(next, "h2e2".to_string());
+        h.push_move(next, "h2e2".to_string(), vec!["h2e2".to_string()]);
         assert!(h.undo());
         assert_eq!(h.current_fen(), STARTPOS_FEN);
         assert!(h.at_head());
@@ -122,9 +150,9 @@ mod tests {
     fn prev_next_browse_without_truncating() {
         let mut h = MoveHistory::new_game();
         let fen2 = try_apply_fully_legal_uci(h.current_fen(), "h2e2").expect("move");
-        h.push_move(fen2.clone(), "h2e2".to_string());
+        h.push_move(fen2.clone(), "h2e2".to_string(), vec![]);
         let fen3 = try_apply_fully_legal_uci(h.current_fen(), "h9g7").expect("move");
-        h.push_move(fen3, "h9g7".to_string());
+        h.push_move(fen3, "h9g7".to_string(), vec![]);
         assert!(h.go_prev());
         assert_eq!(h.last_move_uci_at_view(), Some("h2e2"));
         assert!(h.go_next());
@@ -136,9 +164,22 @@ mod tests {
     fn last_move_follows_view_index() {
         let mut h = MoveHistory::new_game();
         let fen2 = try_apply_fully_legal_uci(h.current_fen(), "h2e2").expect("move");
-        h.push_move(fen2, "h2e2".to_string());
+        h.push_move(fen2, "h2e2".to_string(), vec!["h2e2".to_string(), "h7e7".to_string()]);
         assert_eq!(h.last_move_uci_at_view(), Some("h2e2"));
+        assert!(h.pv_at_view().is_empty());
         assert!(h.go_prev());
         assert_eq!(h.last_move_uci_at_view(), None);
+        assert_eq!(h.pv_at_view(), &["h2e2", "h7e7"][..]);
+    }
+
+    #[test]
+    fn pv_saved_when_leaving_position() {
+        let mut h = MoveHistory::new_game();
+        let pv = vec!["h2e2".to_string(), "h7e7".to_string()];
+        let fen2 = try_apply_fully_legal_uci(h.current_fen(), "h2e2").expect("move");
+        h.push_move(fen2, "h2e2".to_string(), pv);
+        assert!(h.pv_at_view().is_empty());
+        assert!(h.go_prev());
+        assert_eq!(h.pv_at_view(), &["h2e2", "h7e7"][..]);
     }
 }

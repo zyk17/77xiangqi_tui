@@ -1,8 +1,6 @@
 //! 鼠标命中：仅依赖 `UiRegions` + 当前 `Screen`，对弈/设置互不串区。
 
-use ratatui::layout::Rect;
-
-use crate::app::{BattleButton, Screen, SettingsSection, TopTab};
+use crate::app::{Screen, TopTab};
 
 use super::layout::{point_in, BattleRegions, SettingsRegions, UiRegions};
 use super::HitTarget;
@@ -49,11 +47,11 @@ fn hit_settings(column: u16, row: u16, settings: SettingsRegions) -> Option<HitT
     if point_in(settings.command_input, column, row) {
         return Some(HitTarget::CommandInput);
     }
-    if point_in(settings.engine, column, row) {
-        return Some(HitTarget::SettingsSection(SettingsSection::Engine));
-    }
-    if point_in(settings.book, column, row) {
-        return Some(HitTarget::SettingsSection(SettingsSection::OpeningBook));
+    for i in 0..settings.field_count {
+        let (field, rect) = settings.fields[i];
+        if point_in(rect, column, row) {
+            return Some(HitTarget::SettingsField(field));
+        }
     }
     None
 }

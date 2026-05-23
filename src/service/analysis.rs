@@ -127,7 +127,7 @@ fn format_score(result: &EngineAnalyzeResult) -> String {
 
 fn format_win_rate(red: Option<f64>, black: Option<f64>) -> String {
     match (red, black) {
-        (Some(r), Some(b)) => format!("{r:.1}%/{b:.1}%"),
+        (Some(r), Some(b)) => format!("{r:.0}%/{b:.0}%"),
         _ => "--/--".to_string(),
     }
 }
@@ -165,6 +165,27 @@ mod tests {
         assert_eq!(arrow.from_file, 7);
         assert_eq!(arrow.from_rank, 7);
         assert!(board_arrow_from_uci("stub_move").is_none());
+    }
+
+    #[test]
+    fn apply_book_response_fills_snapshot() {
+        use crate::book::{BookCandidate, BookResponse};
+        let svc = AnalysisService;
+        let mut snap = AnalysisSnapshot::idle();
+        let response = BookResponse {
+            source: "obk".to_string(),
+            best_move: Some("h2e2".to_string()),
+            best_winrate: Some(55.5),
+            candidates: vec![BookCandidate {
+                move_uci: Some("h2e2".to_string()),
+                ..BookCandidate::default()
+            }],
+            ..BookResponse::default()
+        };
+        svc.apply_book_response(&mut snap, &response);
+        assert_eq!(snap.source, "obk");
+        assert_eq!(snap.best_move, "h2e2");
+        assert_eq!(snap.pv, vec!["h2e2"]);
     }
 
     #[test]

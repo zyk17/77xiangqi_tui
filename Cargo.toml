@@ -5,11 +5,11 @@ edition = "2024"
 description = "77象棋 TUI 应用"
 license = "MIT"
 
-# 迁移期放宽 lint；模块接入完成后改为 warn/deny 并启用 `cargo check-strict`。
+# `dead_code`：book/engine 迁移余量仍多，暂 allow；`unused_*` 与 clippy 走 lint-strict。
 [lints.rust]
 dead_code = "allow"
-unused_imports = "allow"
-unused_variables = "allow"
+unused_imports = "warn"
+unused_variables = "warn"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

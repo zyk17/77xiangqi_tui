@@ -61,6 +61,12 @@ pub fn button_on() -> Style {
     active_flag()
 }
 
+/// 按钮：不可用（与 GUI `:disabled` 一致）
+#[inline]
+pub fn button_disabled() -> Style {
+    text_dim()
+}
+
 /// 标签页：当前页
 #[inline]
 pub fn tab_active() -> Style {

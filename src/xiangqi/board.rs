@@ -8,6 +8,8 @@ pub const STARTPOS_FEN: &str =
 
 const EMPTY: u8 = 0;
 
+type KingPositions = (Option<(i32, i32)>, Option<(i32, i32)>);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board90 {
     pub cells: [u8; 90],
@@ -56,6 +58,23 @@ impl Board90 {
 
     pub fn is_red_piece(&self, file: u8, rank: u8) -> bool {
         is_red_piece(self.get(file, rank))
+    }
+
+    /// 该格棋子所属方；空格为 `None`。
+    pub fn piece_side(&self, file: u8, rank: u8) -> Option<Side> {
+        let cell = self.get(file, rank);
+        if cell == EMPTY {
+            return None;
+        }
+        if is_red_piece(cell) {
+            Some(Side::Red)
+        } else {
+            Some(Side::Black)
+        }
+    }
+
+    pub fn is_own_for(&self, file: u8, rank: u8, side: Side) -> bool {
+        self.piece_side(file, rank) == Some(side)
     }
 
     pub fn display_at(&self, file: u8, rank: u8) -> char {
@@ -273,7 +292,7 @@ impl Board90 {
         false
     }
 
-    fn find_king_positions(&self) -> (Option<(i32, i32)>, Option<(i32, i32)>) {
+    fn find_king_positions(&self) -> KingPositions {
         let mut red = None;
         let mut black = None;
         for r in 0..10usize {
