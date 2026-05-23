@@ -33,7 +33,10 @@ mod tests {
         let out = truncate_engine_pv_for_ui(&pv);
         assert_eq!(out.len(), ENGINE_PV_UI_MAX_STEPS);
         assert_eq!(out[0], "a0b1");
-        assert_eq!(out[ENGINE_PV_UI_MAX_STEPS - 1], uci(ENGINE_PV_UI_MAX_STEPS - 1));
+        assert_eq!(
+            out[ENGINE_PV_UI_MAX_STEPS - 1],
+            uci(ENGINE_PV_UI_MAX_STEPS - 1)
+        );
     }
 
     #[test]

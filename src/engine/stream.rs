@@ -4,12 +4,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
-use crate::engine::analysis_store::EngineAnalysisStore;
 use crate::engine::EngineConfig;
+use crate::engine::analysis_store::EngineAnalysisStore;
 use crate::engine::uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine};
 
 fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub struct EngineStreamRuntime {

@@ -1,11 +1,11 @@
 use crate::{
     book::BookResponse,
     engine::{
+        AnalysisSnapshot, EngineAnalysisStore, EngineAnalyzeResult,
         uci_ucci_engine::{
             info_state::uci_xiangqi_best_ready,
             ui_helpers::{move_human_from_fen, red_black_winrate_pct_from_wdl},
         },
-        AnalysisSnapshot, EngineAnalysisStore, EngineAnalyzeResult,
     },
     game::BoardArrow,
 };
@@ -24,13 +24,18 @@ impl AnalysisService {
             .best_move
             .clone()
             .unwrap_or_else(|| "--".to_string());
-        snapshot.score_text = response
-            .best_winrate
-            .map(|rate| format!("{rate:.1}%"))
-            .unwrap_or_else(|| "--".to_string());
-        snapshot.win_rate_text = response
-            .best_winrate
-            .map(|rate| format!("{rate:.1}%/--"))
+        let book_rate = response
+            .move_eval
+            .as_ref()
+            .and_then(|eval| {
+                eval.winrate_raw
+                    .clone()
+                    .or_else(|| eval.winrate.map(|rate| format!("{rate:.1}%")))
+            })
+            .or_else(|| response.best_winrate.map(|rate| format!("{rate:.1}%")));
+        snapshot.score_text = book_rate.clone().unwrap_or_else(|| "--".to_string());
+        snapshot.win_rate_text = book_rate
+            .map(|rate| format!("{rate}/--"))
             .unwrap_or_else(|| "--".to_string());
         snapshot.pv = response
             .candidates

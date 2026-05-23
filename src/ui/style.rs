@@ -26,12 +26,16 @@ pub fn accent() -> Style {
 
 #[inline]
 pub fn highlight() -> Style {
-    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD)
 }
 
 #[inline]
 pub fn active_flag() -> Style {
-    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(Color::Green)
+        .add_modifier(Modifier::BOLD)
 }
 
 #[inline]
@@ -41,7 +45,9 @@ pub fn border_normal() -> Style {
 
 #[inline]
 pub fn border_focused() -> Style {
-    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD)
 }
 
 #[inline]

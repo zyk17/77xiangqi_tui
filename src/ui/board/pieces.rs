@@ -9,13 +9,55 @@ pub fn piece_label(cell: u8) -> Option<(&'static str, bool)> {
     }
     let (kind, red) = piece_kind_side(cell)?;
     let label = match kind {
-        5 => if red { "帥" } else { "將" },
-        4 => if red { "仕" } else { "士" },
-        3 => if red { "相" } else { "象" },
-        2 => if red { "傌" } else { "馬" },
-        1 => if red { "俥" } else { "車" },
-        6 => if red { "炮" } else { "砲" },
-        7 => if red { "兵" } else { "卒" },
+        5 => {
+            if red {
+                "帥"
+            } else {
+                "將"
+            }
+        }
+        4 => {
+            if red {
+                "仕"
+            } else {
+                "士"
+            }
+        }
+        3 => {
+            if red {
+                "相"
+            } else {
+                "象"
+            }
+        }
+        2 => {
+            if red {
+                "傌"
+            } else {
+                "馬"
+            }
+        }
+        1 => {
+            if red {
+                "俥"
+            } else {
+                "車"
+            }
+        }
+        6 => {
+            if red {
+                "炮"
+            } else {
+                "砲"
+            }
+        }
+        7 => {
+            if red {
+                "兵"
+            } else {
+                "卒"
+            }
+        }
         _ => return None,
     };
     Some((label, red))

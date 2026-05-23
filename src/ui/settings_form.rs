@@ -1,16 +1,14 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{settings_field::pick_mode_label, App, SettingsField};
-use super::style::{
-    border_focused, border_normal, highlight, text as text_style, text_bold,
-};
+use super::style::{border_focused, border_normal, highlight, text as text_style, text_bold};
 use super::{display_or_placeholder, yes_no};
+use crate::app::{App, SettingsField, settings_field::pick_mode_label};
 
 const ROW_HEIGHT: u16 = 1;
 
@@ -57,7 +55,10 @@ pub fn render_settings_form(frame: &mut Frame<'_>, area: Rect, app: &App) -> Set
         let value = field_value(app, *field);
         let label = pad_label(field.label(), label_w);
         let line = Line::from(vec![
-            Span::styled(format!("{label}  "), if focused { highlight() } else { text_bold() }),
+            Span::styled(
+                format!("{label}  "),
+                if focused { highlight() } else { text_bold() },
+            ),
             Span::styled(value, if focused { highlight() } else { text_style() }),
         ]);
         frame.render_widget(
@@ -109,4 +110,3 @@ pub fn form_block(focused: bool) -> Block<'static> {
 pub fn settings_hint(field: SettingsField) -> String {
     format!("{} {}", field.label(), field.hint())
 }
-

@@ -68,7 +68,9 @@ impl SlashCommand {
     }
 
     pub fn from_name(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|command| command.name() == value)
+        Self::ALL
+            .into_iter()
+            .find(|command| command.name() == value)
     }
 }
 
@@ -173,9 +175,6 @@ mod tests {
     #[test]
     fn parse_invalid_move_fails() {
         let err = CommandService.parse("a0j0").expect_err("invalid move");
-        assert_eq!(
-            err,
-            CommandParseError::InvalidMove("a0j0".to_string())
-        );
+        assert_eq!(err, CommandParseError::InvalidMove("a0j0".to_string()));
     }
 }

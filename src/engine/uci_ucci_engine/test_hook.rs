@@ -1,7 +1,6 @@
 //! 集成测用：短路真实子进程 `analyze`。
 
 use super::types::EngineAnalyzeRequest;
-use super::UciUcciEngine;
 use crate::engine::analysis_types::EngineAnalyzeResult;
 use std::sync::{Arc, Mutex};
 
@@ -22,16 +21,4 @@ pub(crate) fn try_test_analyze_hook(req: &EngineAnalyzeRequest<'_>) -> Option<En
         multipv_override: req.multipv_override,
         cancel: None,
     })
-}
-
-impl UciUcciEngine {
-    pub fn set_test_analyze_hook(hook: Option<TestAnalyzeHook>) {
-        if let Ok(mut g) = TEST_ANALYZE_HOOK.lock() {
-            *g = hook;
-        }
-    }
-
-    pub fn clear_test_analyze_hook() {
-        Self::set_test_analyze_hook(None);
-    }
 }

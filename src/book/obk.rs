@@ -5,8 +5,9 @@
 use super::zobrist_openbook::{vmove_to_engine_uci, zobrist_pair_from_fen};
 use super::{BookCandidate, BookResponse};
 use parking_lot::{Mutex, RwLock};
+#[cfg(test)]
 use rusqlite::types::ValueRef;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -27,6 +28,7 @@ struct Cached {
 static CACHE: RwLock<Option<Cached>> = RwLock::new(None);
 type SharedConn = Arc<Mutex<Connection>>;
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct ObkOptimizeResult {
     pub idx_path: String,
@@ -87,7 +89,8 @@ fn idx_path_for_source(path: &str) -> String {
     format!("{path}.idx")
 }
 
-/// 是否已有与 `.obk` 同名的 `.idx` 旁路索引。
+/// 是否已有与 `.obk` 同名的 `.idx` 旁路索引（测试与索引构建）。
+#[cfg(test)]
 pub fn has_idx_sidecar(obk_path: &str) -> bool {
     let path = obk_path.trim();
     if path.is_empty() {
@@ -96,6 +99,7 @@ pub fn has_idx_sidecar(obk_path: &str) -> bool {
     Path::new(&idx_path_for_source(path)).is_file()
 }
 
+#[cfg(test)]
 fn invalidate_cache(path: &str) {
     let mut g = CACHE.write();
     if g.as_ref().is_some_and(|c| c.path == path) {
@@ -209,8 +213,7 @@ fn query_bhobk_rows(
 ) -> Result<Vec<Row>, rusqlite::Error> {
     const BHOBK_SQL: &str =
         "SELECT vscore, vwin, vdraw, vlost, vmove FROM bhobk WHERE vkey = ? AND vvalid = 1";
-    const BHOBK_SQL_REAL_FALLBACK: &str =
-        "SELECT vscore, vwin, vdraw, vlost, vmove FROM bhobk WHERE cast(vkey as real) = ? AND vvalid = 1";
+    const BHOBK_SQL_REAL_FALLBACK: &str = "SELECT vscore, vwin, vdraw, vlost, vmove FROM bhobk WHERE cast(vkey as real) = ? AND vvalid = 1";
 
     let mut stmt = conn.prepare_cached(BHOBK_SQL)?;
     let rows = stmt.query_map(params![z], map_vscore_row)?;
@@ -332,6 +335,7 @@ fn rows_to_response(rows: Vec<Row>, move_uci: Option<String>, source: &str) -> B
     BookResponse::with_move_eval(candidates, move_uci, source)
 }
 
+#[cfg(test)]
 fn normalize_vkey(v: ValueRef<'_>) -> Option<i64> {
     match v {
         ValueRef::Integer(n) => Some(n),
@@ -343,6 +347,7 @@ fn normalize_vkey(v: ValueRef<'_>) -> Option<i64> {
     }
 }
 
+#[cfg(test)]
 pub fn optimize_idx_sidecar(
     path: &str,
     mut on_progress: Option<&mut dyn FnMut(usize, usize)>,
@@ -511,8 +516,8 @@ pub fn query_local(fen: &str, move_uci: Option<String>, path: &str) -> BookRespo
 #[cfg(test)]
 mod tests {
     use super::{
-        connection_for_path, has_idx_sidecar, optimize_idx_sidecar, query_bhobk_rows_via_idx,
-        BookKind,
+        BookKind, connection_for_path, has_idx_sidecar, optimize_idx_sidecar,
+        query_bhobk_rows_via_idx,
     };
     use rusqlite::Connection;
     use std::path::PathBuf;
@@ -707,6 +712,8 @@ mod tests {
         let result =
             optimize_idx_sidecar(src_path.to_string_lossy().as_ref(), None).expect("optimize");
         assert_eq!(result.indexed_rows, 1);
+        assert_eq!(result.skipped_rows, 0);
+        assert!(result.idx_path.ends_with(".idx"));
         assert!(idx_path.is_file());
         assert!(!tmp_idx_path.exists());
 

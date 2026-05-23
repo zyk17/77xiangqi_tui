@@ -8,11 +8,7 @@ pub(crate) fn sanitize_engine_path(raw: &str) -> Option<String> {
             s = s[1..s.len() - 1].trim().to_string();
         }
     }
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
+    if s.is_empty() { None } else { Some(s) }
 }
 
 pub(crate) fn normalize_engine_path_for_compare(raw: &str) -> Option<String> {

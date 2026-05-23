@@ -1,0 +1,4 @@
+[alias]
+lint = "clippy --all-targets -- -D warnings"
+lint-strict = "clippy --all-targets -- -D warnings"
+check-strict = "check --all-targets"

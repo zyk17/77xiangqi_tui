@@ -3,19 +3,19 @@
 //! 轴标为全局 UCI（与引擎/输入一致）；`rotated` 仅翻转棋子与命中映射。
 
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::game::BoardArrow;
 use crate::xiangqi::{Board90, screen_to_internal};
 
-use super::pieces::{piece_cell_style, piece_label};
 use super::super::style::{text as text_style, text_bold, text_dim};
+use super::pieces::{piece_cell_style, piece_label};
 
 const GRID_STROKE: Color = Color::Rgb(171, 93, 22);
 /// 上一手 / 提示：红方高亮
@@ -92,11 +92,10 @@ impl GridMetrics {
 }
 
 /// 对弈区棋盘在给定终端尺寸下拟合后的像素宽高比（与 `ui/mod.rs` 布局一致）。
+#[cfg(test)]
 pub fn battle_board_pixel_aspect(term_w: u16, term_h: u16) -> f64 {
     let board_area_h = term_h.saturating_sub(3 + 3 + 5) as usize;
-    let inner_w = ((term_w as f32 * 0.72) as usize)
-        .saturating_sub(2)
-        .max(12);
+    let inner_w = ((term_w as f32 * 0.72) as usize).saturating_sub(2).max(12);
     let inner_h = board_area_h.saturating_sub(2).max(12);
     let max_cell_w = ((inner_w.saturating_sub(AXIS_W + 1 + 8 + 1)) / 9).max(2);
     let max_cell_h = max_cell_h_for_inner_h(inner_h);
@@ -150,13 +149,7 @@ fn piece_layout_in_cell(cell_w: usize, cell_h: usize) -> (usize, usize, usize, u
     let piece_pad_w = (cell_w - piece_w) / 2;
     let piece_pad_h = (cell_h - piece_h) / 2;
     let glyph_sub = piece_pad_h + piece_h / 2;
-    (
-        piece_w,
-        piece_h,
-        piece_pad_w,
-        piece_pad_h,
-        glyph_sub,
-    )
+    (piece_w, piece_h, piece_pad_w, piece_pad_h, glyph_sub)
 }
 
 fn river_sep_lines(cell_h: usize) -> usize {
@@ -179,24 +172,14 @@ fn line_cols_for_cell_w(cell_w: usize) -> usize {
     AXIS_W + 1 + cell_w * 9 + 8 + 1
 }
 
-const GRID_MARKER_CHARS: &[char] = &[
-    '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '─', '│',
-];
-
-/// 从抓屏解析 `cell_w`/`cell_h` 并返回理论像素宽高比（与布局公式一致）。
-pub fn measure_capture_grid_aspect(capture: &str) -> f64 {
-    parse_capture_grid_cells(capture)
-        .map(|(w, h)| grid_pixel_aspect(w, h))
-        .unwrap_or(0.0)
-}
-
 /// 从 `┌──────┬…┐` 顶边与 `└──────┴…┘` 底边推算格子尺寸。
+#[cfg(test)]
 pub fn parse_capture_grid_cells(capture: &str) -> Option<(usize, usize)> {
     let lines: Vec<&str> = capture.lines().collect();
     let top = lines.iter().position(|l| is_board_top_border(l))?;
-    let mut bottom = lines.iter().rposition(|l| {
-        l.contains('└') && l.chars().filter(|&c| c == '┴').count() >= 8
-    })?;
+    let mut bottom = lines
+        .iter()
+        .rposition(|l| l.contains('└') && l.chars().filter(|&c| c == '┴').count() >= 8)?;
     if bottom + 1 < lines.len() {
         let next = lines[bottom + 1];
         let file_labels = next.chars().filter(|c| matches!(c, 'a'..='i')).count();
@@ -215,6 +198,7 @@ pub fn parse_capture_grid_cells(capture: &str) -> Option<(usize, usize)> {
     None
 }
 
+#[cfg(test)]
 fn parse_cell_w_from_top_line(line: &str) -> Option<usize> {
     let i = line.find('┌')?;
     let tail = &line[i..];
@@ -222,14 +206,11 @@ fn parse_cell_w_from_top_line(line: &str) -> Option<usize> {
         return None;
     }
     let dashes = tail.chars().take_while(|&c| c == '─').count();
-    if dashes >= 2 {
-        Some(dashes)
-    } else {
-        None
-    }
+    if dashes >= 2 { Some(dashes) } else { None }
 }
 
 /// 是否为棋盘顶边 `┌────┬×8`（不要求行末 `┐`，避免抓屏裁切误判）。
+#[cfg(test)]
 fn is_board_top_border(line: &str) -> bool {
     let chars: Vec<(usize, char)> = line.char_indices().collect();
     for i in 0..chars.len() {
@@ -244,10 +225,6 @@ fn is_board_top_border(line: &str) -> bool {
     false
 }
 
-fn is_grid_marker(ch: char) -> bool {
-    GRID_MARKER_CHARS.contains(&ch)
-}
-
 pub fn render_grid_board(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -255,16 +232,14 @@ pub fn render_grid_board(
     rotated: bool,
     overlay: BoardOverlay,
 ) -> Rect {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Span::styled(
-            if overlay.pending_arrow.is_some() {
-                "A 棋盘 · 提示"
-            } else {
-                "A 棋盘"
-            },
-            text_bold(),
-        ));
+    let block = Block::default().borders(Borders::ALL).title(Span::styled(
+        if overlay.pending_arrow.is_some() {
+            "A 棋盘 · 提示"
+        } else {
+            "A 棋盘"
+        },
+        text_bold(),
+    ));
     let inner = board_block_inner(area);
     let m = grid_metrics_for_board_area(area);
     crate::runtime_log::debug(format!(
@@ -314,12 +289,7 @@ pub fn render_grid_board(
     area
 }
 
-pub fn hit_board_cell(
-    area: Rect,
-    column: u16,
-    row: u16,
-    rotated: bool,
-) -> Option<(u8, u8)> {
+pub fn hit_board_cell(area: Rect, column: u16, row: u16, rotated: bool) -> Option<(u8, u8)> {
     let inner = board_block_inner(area);
     let m = grid_metrics_for_board_area(area);
     if column < inner.x
@@ -395,6 +365,7 @@ fn grid_metrics_for_board_area(area: Rect) -> GridMetrics {
 }
 
 /// 屏幕格中心在终端上的坐标（用于命中回归测试）。
+#[cfg(test)]
 pub fn cell_hit_point_in_grid(area: Rect, file: u8, screen_row: u8) -> Option<(u16, u16)> {
     let inner = board_block_inner(area);
     let m = grid_metrics_for_board_area(area);
@@ -406,6 +377,7 @@ pub fn cell_hit_point_in_grid(area: Rect, file: u8, screen_row: u8) -> Option<(u
     ))
 }
 
+#[cfg(test)]
 fn column_center_for_file(m: &GridMetrics, file: u8) -> Option<u16> {
     let mut x = (AXIS_W + 1) as u16;
     for f in 0..9u8 {
@@ -417,6 +389,7 @@ fn column_center_for_file(m: &GridMetrics, file: u8) -> Option<u16> {
     None
 }
 
+#[cfg(test)]
 fn line_center_for_screen_row(m: &GridMetrics, screen_row: u8) -> Option<u16> {
     let ch = m.cell_h as u16;
     let mut line = 1u16;
@@ -486,8 +459,7 @@ fn cell_spans(
         return vec![Span::styled(fit_display("", m.cell_w), style)];
     }
 
-    let in_piece_band =
-        sub >= m.piece_pad_h && sub < m.piece_pad_h.saturating_add(m.piece_h);
+    let in_piece_band = sub >= m.piece_pad_h && sub < m.piece_pad_h.saturating_add(m.piece_h);
     if !in_piece_band {
         return vec![Span::styled(fit_display("", m.cell_w), text_dim())];
     }
@@ -562,16 +534,14 @@ fn move_highlight_overlay(
     pending: Option<BoardArrow>,
 ) -> Option<(Color, bool)> {
     if let Some(a) = pending {
-        if (a.from_file == file && a.from_rank == rank)
-            || (a.to_file == file && a.to_rank == rank)
+        if (a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank)
         {
             let red = arrow_mover_is_red(board, &a);
             return Some((side_highlight_bg(red, true), true));
         }
     }
     if let Some(a) = last {
-        if (a.from_file == file && a.from_rank == rank)
-            || (a.to_file == file && a.to_rank == rank)
+        if (a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank)
         {
             let red = arrow_mover_is_red(board, &a);
             return Some((side_highlight_bg(red, false), false));
@@ -690,7 +660,10 @@ fn file_axis_line(m: &GridMetrics, rotated: bool) -> Line<'static> {
     for file in 0..9u8 {
         let (ifile, _) = screen_to_internal(file, 9, rotated);
         let ch = (b'a' + ifile) as char;
-        spans.push(Span::styled(fit_display(&ch.to_string(), m.cell_w), text_dim()));
+        spans.push(Span::styled(
+            fit_display(&ch.to_string(), m.cell_w),
+            text_dim(),
+        ));
         if file != 8 {
             spans.push(Span::styled("│", stroke));
         }
@@ -800,7 +773,7 @@ mod tests {
 
     #[test]
     fn screen_rotate_maps_corners() {
-        use crate::xiangqi::internal_to_screen;
+        use crate::xiangqi::uci::internal_to_screen;
 
         assert_eq!(screen_to_internal(0, 9, false), (0, 9));
         assert_eq!(screen_to_internal(0, 9, true), (8, 0));

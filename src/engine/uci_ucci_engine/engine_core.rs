@@ -37,10 +37,6 @@ impl UciUcciEngine {
         }
     }
 
-    pub fn last_protocol(&self) -> String {
-        self.last_protocol.lock().unwrap().clone()
-    }
-
     pub fn configure(&mut self, req: EngineConfigureRequest) {
         if let Some(p) = req.engine_path {
             self.engine_path = sanitize_engine_path(&p);
@@ -93,10 +89,6 @@ impl UciUcciEngine {
                 *self.protocol_preference.lock().unwrap() = norm.to_string();
             }
         }
-        self.terminate_locked();
-    }
-
-    pub fn force_restart(&mut self) {
         self.terminate_locked();
     }
 

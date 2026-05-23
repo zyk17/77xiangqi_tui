@@ -67,13 +67,6 @@ impl SettingsField {
         }
     }
 
-    pub fn editable_in_input(self) -> bool {
-        matches!(
-            self.kind(),
-            SettingsFieldKind::Text | SettingsFieldKind::Number | SettingsFieldKind::Cycle
-        )
-    }
-
     pub fn hint(self) -> &'static str {
         match self {
             Self::EnginePath => "Enter 在 C 区输入路径，Esc 返回。",
@@ -110,10 +103,7 @@ pub fn pick_mode_label(mode: &str) -> &'static str {
 
 pub fn cycle_pick_mode(mode: &str, delta: isize) -> String {
     let modes = ["optimal", "positive_random"];
-    let index = modes
-        .iter()
-        .position(|m| *m == mode)
-        .unwrap_or(0) as isize;
+    let index = modes.iter().position(|m| *m == mode).unwrap_or(0) as isize;
     let next = (index + delta).rem_euclid(modes.len() as isize) as usize;
     modes[next].to_string()
 }

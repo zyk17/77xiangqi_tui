@@ -2,15 +2,10 @@
 
 use crate::app::{Screen, TopTab};
 
-use super::layout::{point_in, BattleRegions, SettingsRegions, UiRegions};
 use super::HitTarget;
+use super::layout::{BattleRegions, SettingsRegions, UiRegions, point_in};
 
-pub fn hit_test(
-    column: u16,
-    row: u16,
-    screen: Screen,
-    regions: &UiRegions,
-) -> Option<HitTarget> {
+pub fn hit_test(column: u16, row: u16, screen: Screen, regions: &UiRegions) -> Option<HitTarget> {
     if point_in(regions.tabs.battle, column, row) {
         return Some(HitTarget::TopTab(TopTab::Battle));
     }
@@ -18,14 +13,13 @@ pub fn hit_test(
         return Some(HitTarget::TopTab(TopTab::Settings));
     }
 
-    match (screen, regions.screen) {
-        (Screen::Battle, super::layout::ScreenRegions::Battle(battle)) => {
-            hit_battle(column, row, battle)
-        }
-        (Screen::Settings, super::layout::ScreenRegions::Settings(settings)) => {
-            hit_settings(column, row, settings)
-        }
-        _ => None,
+    match screen {
+        Screen::Battle => regions
+            .battle()
+            .and_then(|battle| hit_battle(column, row, battle)),
+        Screen::Settings => regions
+            .settings()
+            .and_then(|settings| hit_settings(column, row, settings)),
     }
 }
 
@@ -55,4 +49,3 @@ fn hit_settings(column: u16, row: u16, settings: SettingsRegions) -> Option<HitT
     }
     None
 }
-

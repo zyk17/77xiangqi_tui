@@ -38,11 +38,6 @@ impl Board90 {
     }
 
     #[inline]
-    pub fn set(&mut self, file: u8, rank: u8, piece: u8) {
-        self.cells[Self::index(file, rank)] = piece;
-    }
-
-    #[inline]
     fn at(&self, rank: usize, file: usize) -> u8 {
         self.cells[rank * 9 + file]
     }
@@ -75,10 +70,6 @@ impl Board90 {
 
     pub fn is_own_for(&self, file: u8, rank: u8, side: Side) -> bool {
         self.piece_side(file, rank) == Some(side)
-    }
-
-    pub fn display_at(&self, file: u8, rank: u8) -> char {
-        piece_to_fen_char(self.get(file, rank))
     }
 
     pub fn from_fen(fen: &str) -> Option<Self> {
@@ -223,14 +214,7 @@ impl Board90 {
         out
     }
 
-    fn legal_move_geometry(
-        &self,
-        side_red: bool,
-        r1: i32,
-        c1: i32,
-        r2: i32,
-        c2: i32,
-    ) -> bool {
+    fn legal_move_geometry(&self, side_red: bool, r1: i32, c1: i32, r2: i32, c2: i32) -> bool {
         if !in_board(r2, c2) {
             return false;
         }
@@ -330,11 +314,7 @@ fn piece_kind(cell: u8) -> u8 {
     if cell == EMPTY {
         return 0;
     }
-    if cell <= 7 {
-        cell
-    } else {
-        cell - 8
-    }
+    if cell <= 7 { cell } else { cell - 8 }
 }
 
 fn piece_kind_to_type(kind: u8) -> Option<u8> {
@@ -485,7 +465,7 @@ fn legal_move_geometry_raw(
 
 #[cfg(test)]
 mod tests {
-    use super::{Board90, Side, STARTPOS_FEN};
+    use super::{Board90, STARTPOS_FEN, Side};
 
     #[test]
     fn startpos_roundtrip() {
@@ -502,6 +482,10 @@ mod tests {
     #[test]
     fn h2e2_legal_from_start() {
         let board = Board90::from_fen(STARTPOS_FEN).expect("start");
-        assert!(board.legal_ucis_for_side(Side::Red).contains(&"h2e2".to_string()));
+        assert!(
+            board
+                .legal_ucis_for_side(Side::Red)
+                .contains(&"h2e2".to_string())
+        );
     }
 }

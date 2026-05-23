@@ -13,10 +13,6 @@ pub struct InputState {
 }
 
 impl InputState {
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
     pub fn text(&self) -> &str {
         &self.buffer
     }
@@ -299,7 +295,7 @@ mod tests {
         assert!(input.history_next());
         assert_eq!(input.text(), "undo");
         assert!(input.history_next());
-        assert!(input.is_empty());
+        assert!(input.text().is_empty());
     }
 
     #[test]

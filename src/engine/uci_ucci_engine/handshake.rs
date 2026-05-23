@@ -5,9 +5,9 @@ use std::time::Duration;
 use super::engine_core::UciUcciEngine;
 use super::engine_path::has_non_ascii;
 use super::handshake_plan::handshake_protocol_sequence;
+use crate::engine::protocol::EngineProtocol;
 use crate::engine::protocol::ucci::Ucci;
 use crate::engine::protocol::uci::Uci;
-use crate::engine::protocol::EngineProtocol;
 use crate::runtime_log;
 
 const KEY_PROTOCOL: &str = "engine_protocol_detected";
@@ -15,7 +15,10 @@ const KEY_PROTOCOL_PATH: &str = "engine_protocol_detected_for_path";
 
 fn set_config_kv(lines: &mut Vec<String>, key: &str, value: &str) {
     let prefix = format!("{key}=");
-    if let Some(idx) = lines.iter().position(|line| line.trim().starts_with(&prefix)) {
+    if let Some(idx) = lines
+        .iter()
+        .position(|line| line.trim().starts_with(&prefix))
+    {
         lines[idx] = format!("{key}={value}");
     } else {
         lines.push(format!("{key}={value}"));
@@ -88,7 +91,7 @@ impl UciUcciEngine {
             }
             let proto: &dyn EngineProtocol = if *proto_id == "uci" { &uci } else { &ucci };
             if self.try_handshake_protocol(proto) {
-                got = Some(*proto_id);
+                got = Some(proto.protocol_id());
                 break;
             }
         }

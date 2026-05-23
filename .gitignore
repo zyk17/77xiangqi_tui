@@ -3,9 +3,11 @@ logs/
 xiangqi_tui.conf
 NextStep.md
 TODO.md
-scripts/
+scripts/*
+!scripts/check.ps1
 clippy.toml
-.cargo/
+.cargo/*
+!.cargo/config.toml
 .idea/
 *.log
 *.tmp

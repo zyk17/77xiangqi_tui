@@ -1,7 +1,7 @@
 //! 流式 `info` 行合并到 [`EngineInfoState`]，以及主变挑选。
 
 use crate::engine::analysis_types::EngineInfoCandidate;
-use crate::engine::protocol::{candidate_from_parsed, ParsedUciStyleInfo};
+use crate::engine::protocol::{ParsedUciStyleInfo, candidate_from_parsed};
 use std::collections::BTreeMap;
 
 pub(crate) struct EngineInfoState {

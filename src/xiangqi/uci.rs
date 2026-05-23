@@ -46,6 +46,7 @@ pub fn screen_to_internal(file: u8, screen_row: u8, rotated: bool) -> (u8, u8) {
 }
 
 #[inline]
+#[cfg(test)]
 pub fn internal_to_screen(file: u8, rank: u8, rotated: bool) -> (u8, u8) {
     if rotated {
         (8 - file, 9 - rank)

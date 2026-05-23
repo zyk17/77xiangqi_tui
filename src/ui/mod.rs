@@ -6,11 +6,11 @@ pub mod settings_form;
 mod style;
 
 use ratatui::{
+    Frame,
     layout::Alignment,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
-    Frame,
 };
 
 use self::style::{
@@ -42,16 +42,36 @@ const BUTTON_ROW_COUNT: u16 = 4;
 const BUTTON_PANEL_HEIGHT: u16 = BUTTON_ROW_HEIGHT * BUTTON_ROW_COUNT;
 
 const BUTTON_ROWS: [[Option<BattleButton>; 3]; 4] = [
-    [Some(BattleButton::RedAi), Some(BattleButton::BlackAi), Some(BattleButton::QueryMode)],
-    [Some(BattleButton::NewGame), Some(BattleButton::Undo), Some(BattleButton::RotateBoard)],
-    [Some(BattleButton::PrevMove), Some(BattleButton::NextMove), Some(BattleButton::CopyFen)],
-    [Some(BattleButton::PasteFen), Some(BattleButton::RealtimeEval), None],
+    [
+        Some(BattleButton::RedAi),
+        Some(BattleButton::BlackAi),
+        Some(BattleButton::QueryMode),
+    ],
+    [
+        Some(BattleButton::NewGame),
+        Some(BattleButton::Undo),
+        Some(BattleButton::RotateBoard),
+    ],
+    [
+        Some(BattleButton::PrevMove),
+        Some(BattleButton::NextMove),
+        Some(BattleButton::CopyFen),
+    ],
+    [
+        Some(BattleButton::PasteFen),
+        Some(BattleButton::RealtimeEval),
+        None,
+    ],
 ];
 
 pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
     let root = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ])
         .split(frame.area());
 
     let tabs = render_tabs(frame, root[0], app);
@@ -74,12 +94,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App) -> RenderOutput {
     }
 }
 
-pub fn hit_test(
-    column: u16,
-    row: u16,
-    screen: Screen,
-    regions: &UiRegions,
-) -> Option<HitTarget> {
+pub fn hit_test(column: u16, row: u16, screen: Screen, regions: &UiRegions) -> Option<HitTarget> {
     hit::hit_test(column, row, screen, regions)
 }
 
@@ -201,8 +216,7 @@ fn render_settings(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Sett
 }
 
 fn render_command_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let settings_text_edit =
-        app.screen == Screen::Settings && app.focus == Focus::CommandInput;
+    let settings_text_edit = app.screen == Screen::Settings && app.focus == Focus::CommandInput;
     let title = if settings_text_edit {
         "C 设置输入*"
     } else if app.focus == Focus::CommandInput {
@@ -425,7 +439,9 @@ fn button_block(active: bool, focused: bool, disabled: bool) -> Block<'static> {
     } else {
         border_normal()
     };
-    Block::default().borders(Borders::ALL).border_style(border_style)
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
 }
 
 fn button_text_style(
@@ -436,7 +452,7 @@ fn button_text_style(
 ) -> ratatui::style::Style {
     use ratatui::style::Modifier;
     if disabled {
-        return text_dim();
+        return style::button_disabled();
     }
     if active {
         return match button {
@@ -464,7 +480,10 @@ fn render_input_line(app: &App) -> Line<'static> {
     match current {
         Some(ch) => {
             spans.push(Span::styled(ch.to_string(), cursor_cell()));
-            spans.push(Span::styled(after[ch.len_utf8()..].to_string(), text_style()));
+            spans.push(Span::styled(
+                after[ch.len_utf8()..].to_string(),
+                text_style(),
+            ));
         }
         None => {
             spans.push(Span::styled(" ".to_string(), cursor_cell()));
@@ -495,26 +514,12 @@ fn board_keyboard_cell(app: &App) -> Option<(u8, u8)> {
 
 #[cfg(test)]
 mod render_tests {
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use crate::app::App;
 
     use super::render;
-
-    fn row_text(buf: &ratatui::buffer::Buffer, y: u16, x0: u16, x1: u16) -> String {
-        let mut out = String::new();
-        for x in x0..=x1 {
-            let cell = buf.cell((x, y)).unwrap();
-            let ch = cell.symbol();
-            if ch.is_empty() {
-                out.push('·');
-            } else {
-                out.push_str(ch);
-            }
-        }
-        out
-    }
 
     #[test]
     fn dump_b_button_rows_in_test_backend() {

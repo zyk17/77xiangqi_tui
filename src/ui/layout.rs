@@ -2,7 +2,7 @@
 
 use ratatui::layout::Rect;
 
-use crate::app::{settings_field::SettingsField, BattleButton};
+use crate::app::{BattleButton, settings_field::SettingsField};
 
 /// 顶栏两个 Tab 的命中区（与 `render_tabs` 的 50/50 分栏一致）。
 #[derive(Debug, Clone, Copy)]
@@ -58,8 +58,5 @@ impl UiRegions {
 }
 
 pub fn point_in(rect: Rect, column: u16, row: u16) -> bool {
-    column >= rect.x
-        && column < rect.right()
-        && row >= rect.y
-        && row < rect.bottom()
+    column >= rect.x && column < rect.right() && row >= rect.y && row < rect.bottom()
 }

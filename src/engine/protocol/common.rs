@@ -176,7 +176,7 @@ pub(crate) fn candidate_from_parsed(
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate_from_parsed, parse_uci_style_info_tokens, EngineInfoCandidate};
+    use super::{EngineInfoCandidate, candidate_from_parsed, parse_uci_style_info_tokens};
 
     #[test]
     fn parse_score_and_wdl_with_lowerbound() {

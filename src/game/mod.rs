@@ -51,21 +51,3 @@ impl Default for GameState {
         }
     }
 }
-
-impl GameState {
-    pub fn reset(&mut self) {
-        crate::service::GameService::reset(self);
-    }
-
-    pub fn active_mode_count(&self) -> usize {
-        [
-            self.red_ai,
-            self.black_ai,
-            self.query_mode,
-            self.realtime_eval,
-        ]
-        .into_iter()
-        .filter(|enabled| *enabled)
-        .count()
-    }
-}

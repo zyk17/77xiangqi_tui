@@ -13,18 +13,18 @@ use crate::{
     game::GameState,
     input::InputState,
     service::{
-        ai_enabled_for_side, book_config_usable, best_uci_from_engine,
-        should_query_book_for_display, AiPhase, AppServices, AutoplayService, CoordinateMove,
-        GameService, ParsedCommand, SlashCommand, AI_MOVE_DELAY, BOOK_ARROW_DELAY,
+        AI_MOVE_DELAY, AiPhase, AppServices, AutoplayService, BOOK_ARROW_DELAY, CoordinateMove,
+        GameService, ParsedCommand, SlashCommand, ai_enabled_for_side, best_uci_from_engine,
+        book_config_usable, should_query_book_for_display,
     },
-    xiangqi::{Side, uci_cell_label},
     settings_config,
     ui::{self, HitTarget},
+    xiangqi::{Side, uci_cell_label},
 };
 
 pub use settings_field::SettingsField;
 use settings_field::{
-    bump_hash_mb, clamp_threads, cycle_pick_mode, cycle_protocol, SettingsFieldKind,
+    SettingsFieldKind, bump_hash_mb, clamp_threads, cycle_pick_mode, cycle_protocol,
 };
 
 const TICK_RATE: Duration = Duration::from_millis(50);
@@ -44,13 +44,6 @@ pub enum TopTab {
 
 impl TopTab {
     pub const ALL: [TopTab; 2] = [TopTab::Battle, TopTab::Settings];
-
-    fn next(self) -> Self {
-        match self {
-            Self::Battle => Self::Settings,
-            Self::Settings => Self::Battle,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +62,7 @@ pub enum BattleButton {
 }
 
 impl BattleButton {
+    #[cfg(test)]
     pub const ALL: [BattleButton; 11] = [
         BattleButton::RedAi,
         BattleButton::BlackAi,
@@ -124,13 +118,6 @@ impl BattleButton {
             Self::NextMove => "已在最新步。",
             _ => "当前不可用。",
         })
-    }
-
-    fn step(self, delta: isize) -> Self {
-        let index = Self::ALL.iter().position(|item| *item == self).unwrap_or(0) as isize;
-        let len = Self::ALL.len() as isize;
-        let next = (index + delta).rem_euclid(len) as usize;
-        Self::ALL[next]
     }
 }
 
@@ -362,11 +349,17 @@ impl App {
         }
 
         let fen = GameService::engine_fen(&self.game);
-        if let Some(uci) =
-            AutoplayService::try_book_autoplay_move_for_game(&self.services.book, &self.game, &self.book, &fen)
-        {
-            self.ai_phase =
-                AutoplayService::begin_ai_wait(&mut self.game, uci, BOOK_ARROW_DELAY.max(AI_MOVE_DELAY));
+        if let Some(uci) = AutoplayService::try_book_autoplay_move_for_game(
+            &self.services.book,
+            &self.game,
+            &self.book,
+            &fen,
+        ) {
+            self.ai_phase = AutoplayService::begin_ai_wait(
+                &mut self.game,
+                uci,
+                BOOK_ARROW_DELAY.max(AI_MOVE_DELAY),
+            );
             return;
         }
 
@@ -386,13 +379,10 @@ impl App {
         let result = self.services.engine.run_autoplay_once(&fen, &self.engine);
         if let Some(uci) = best_uci_from_engine(&result) {
             self.ai_engine_retry_after = None;
-            self.services.analysis.apply_engine_result(
-                &mut self.game.analysis,
-                &result,
-                &fen,
-            );
-            self.ai_phase =
-                AutoplayService::begin_ai_wait(&mut self.game, uci, AI_MOVE_DELAY);
+            self.services
+                .analysis
+                .apply_engine_result(&mut self.game.analysis, &result, &fen);
+            self.ai_phase = AutoplayService::begin_ai_wait(&mut self.game, uci, AI_MOVE_DELAY);
         } else {
             self.ai_engine_retry_after = Some(Instant::now() + AI_ENGINE_RETRY_COOLDOWN);
             self.status = format!(
@@ -764,11 +754,7 @@ impl App {
                     Side::Red => "红",
                     Side::Black => "黑",
                 };
-                let shown = self
-                    .game
-                    .last_move_uci
-                    .as_deref()
-                    .unwrap_or(uci);
+                let shown = self.game.last_move_uci.as_deref().unwrap_or(uci);
                 self.status = format!("已走 {shown}，轮到{side}方。");
             }
             Err(err) => self.status = err.message(),
@@ -947,7 +933,11 @@ impl App {
                 );
                 self.status = format!(
                     "本地库：{}",
-                    if self.book.local_enabled { "开启" } else { "关闭" }
+                    if self.book.local_enabled {
+                        "开启"
+                    } else {
+                        "关闭"
+                    }
                 );
                 self.after_book_settings_changed();
             }
@@ -959,7 +949,11 @@ impl App {
                 );
                 self.status = format!(
                     "云库：{}",
-                    if self.book.cloud_enabled { "开启" } else { "关闭" }
+                    if self.book.cloud_enabled {
+                        "开启"
+                    } else {
+                        "关闭"
+                    }
                 );
                 self.after_book_settings_changed();
             }
@@ -1035,7 +1029,9 @@ impl App {
         let err_msg = match field {
             SettingsField::EnginePath => {
                 self.engine.path = value.to_string();
-                settings_config::save_engine_path(&self.engine.path).err().map(|e| e.to_string())
+                settings_config::save_engine_path(&self.engine.path)
+                    .err()
+                    .map(|e| e.to_string())
             }
             SettingsField::BookLocalPath => {
                 self.book.local_path = value.to_string();
@@ -1054,13 +1050,17 @@ impl App {
                     }
                 };
                 self.engine.protocol = proto;
-                settings_config::save_engine_protocol(proto).err().map(|e| e.to_string())
+                settings_config::save_engine_protocol(proto)
+                    .err()
+                    .map(|e| e.to_string())
             }
             SettingsField::EngineThreads => match value.parse::<u8>() {
                 Ok(v) => {
                     let v = clamp_threads(i32::from(v));
                     self.engine.threads = v;
-                    settings_config::save_engine_threads(v).err().map(|e| e.to_string())
+                    settings_config::save_engine_threads(v)
+                        .err()
+                        .map(|e| e.to_string())
                 }
                 Err(_) => {
                     self.status = "线程数无效。".to_string();
@@ -1072,7 +1072,9 @@ impl App {
                 Ok(v) => {
                     let v = v.clamp(64, 8192);
                     self.engine.hash_mb = v;
-                    settings_config::save_engine_hash_mb(v).err().map(|e| e.to_string())
+                    settings_config::save_engine_hash_mb(v)
+                        .err()
+                        .map(|e| e.to_string())
                 }
                 Err(_) => {
                     self.status = "Hash 无效。".to_string();
@@ -1084,7 +1086,9 @@ impl App {
                 Ok(v) => {
                     let v = v.min(20);
                     self.engine.skill_level = v;
-                    settings_config::save_engine_skill(v).err().map(|e| e.to_string())
+                    settings_config::save_engine_skill(v)
+                        .err()
+                        .map(|e| e.to_string())
                 }
                 Err(_) => {
                     self.status = "Skill 无效。".to_string();
@@ -1096,7 +1100,9 @@ impl App {
                 Ok(v) => {
                     let v = v.clamp(1, 5);
                     self.engine.multi_pv = v;
-                    settings_config::save_engine_multi_pv(v).err().map(|e| e.to_string())
+                    settings_config::save_engine_multi_pv(v)
+                        .err()
+                        .map(|e| e.to_string())
                 }
                 Err(_) => {
                     self.status = "MultiPV 无效。".to_string();
@@ -1122,12 +1128,16 @@ impl App {
                     "optimal"
                 };
                 self.book.pick_mode = mode.to_string();
-                settings_config::save_book_pick_mode(mode).err().map(|e| e.to_string())
+                settings_config::save_book_pick_mode(mode)
+                    .err()
+                    .map(|e| e.to_string())
             }
             SettingsField::BookMaxHalfmoves => match value.parse::<u16>() {
                 Ok(v) => {
                     self.book.max_halfmoves = v;
-                    settings_config::save_book_max_halfmoves(v).err().map(|e| e.to_string())
+                    settings_config::save_book_max_halfmoves(v)
+                        .err()
+                        .map(|e| e.to_string())
                 }
                 Err(_) => {
                     self.status = "步数无效。".to_string();
@@ -1175,8 +1185,7 @@ impl App {
         if screen == Screen::Settings {
             self.focus_settings_field(self.settings_field);
         } else {
-            self.status =
-                "对弈：Tab 切设置；棋盘方向键+空格；/ 命令（Tab/→ 补全）。".to_string();
+            self.status = "对弈：Tab 切设置；棋盘方向键+空格；/ 命令（Tab/→ 补全）。".to_string();
         }
     }
 
@@ -1191,7 +1200,8 @@ impl App {
             BattleButton::RedAi => {
                 self.game.red_ai = !self.game.red_ai;
                 self.status = format!("红电脑：{}", if self.game.red_ai { "开启" } else { "关闭" });
-                if self.game.red_ai && self.game.side_to_move == Side::Red && !self.game.query_mode {
+                if self.game.red_ai && self.game.side_to_move == Side::Red && !self.game.query_mode
+                {
                     self.status.push_str("（思考中…）");
                 }
             }
@@ -1199,9 +1209,16 @@ impl App {
                 self.game.black_ai = !self.game.black_ai;
                 self.status = format!(
                     "黑电脑：{}",
-                    if self.game.black_ai { "开启" } else { "关闭" }
+                    if self.game.black_ai {
+                        "开启"
+                    } else {
+                        "关闭"
+                    }
                 );
-                if self.game.black_ai && self.game.side_to_move == Side::Black && !self.game.query_mode {
+                if self.game.black_ai
+                    && self.game.side_to_move == Side::Black
+                    && !self.game.query_mode
+                {
                     self.status.push_str("（思考中…）");
                 }
             }

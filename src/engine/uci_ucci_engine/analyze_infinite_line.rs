@@ -1,8 +1,6 @@
 //! `go infinite` 单行 stdout 合并到状态并更新共享快照。
 
-use super::info_state::{
-    apply_parsed_info_to_state, EngineInfoState,
-};
+use super::info_state::{EngineInfoState, apply_parsed_info_to_state};
 use crate::engine::analysis_store::EngineAnalysisStore;
 use crate::engine::protocol::parse_uci_style_info_tokens;
 

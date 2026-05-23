@@ -3,22 +3,18 @@ use std::time::{Duration, Instant};
 
 use crate::engine::analysis_types::{EngineAnalyzeResult, EngineInfoCandidate};
 
-#[cfg(test)]
-use super::test_hook::try_test_analyze_hook;
 use super::engine_core::UciUcciEngine;
 use super::info_state::{
-    apply_parsed_info_to_state, select_main_line_from_candidates, EngineInfoState,
+    EngineInfoState, apply_parsed_info_to_state, select_main_line_from_candidates,
 };
+#[cfg(test)]
+use super::test_hook::try_test_analyze_hook;
 use super::types::{EngineAnalyzeRequest, EngineStdoutPoll};
 use super::ui_helpers::stub_result;
 use crate::engine::protocol::parse_uci_style_info_tokens;
 use crate::runtime_log;
 
 impl UciUcciEngine {
-    pub fn analyze(&mut self, req: EngineAnalyzeRequest<'_>) -> EngineAnalyzeResult {
-        self.analyze_inner(req)
-    }
-
     /// AI 自动走子：固定深度 + 时限的一次性分析。
     pub fn analyze_autoplay_once(&mut self, fen: &str) -> EngineAnalyzeResult {
         self.analyze_inner(EngineAnalyzeRequest {
@@ -28,42 +24,6 @@ impl UciUcciEngine {
             search_moves: None,
             search_nodes: None,
             multipv_override: Some(1),
-            cancel: None,
-        })
-    }
-
-    pub fn analyze_review_line(
-        &mut self,
-        fen: &str,
-        depth: Option<i32>,
-        movetime_ms: Option<i32>,
-    ) -> EngineAnalyzeResult {
-        self.analyze_inner(EngineAnalyzeRequest {
-            fen,
-            depth,
-            movetime_ms,
-            search_moves: None,
-            search_nodes: None,
-            multipv_override: Some(1),
-            cancel: None,
-        })
-    }
-
-    pub fn analyze_review_line_multipv(
-        &mut self,
-        fen: &str,
-        depth: Option<i32>,
-        movetime_ms: Option<i32>,
-        multipv: i32,
-    ) -> EngineAnalyzeResult {
-        let mp = multipv.clamp(2, 5);
-        self.analyze_inner(EngineAnalyzeRequest {
-            fen,
-            depth,
-            movetime_ms,
-            search_moves: None,
-            search_nodes: None,
-            multipv_override: Some(mp),
             cancel: None,
         })
     }
@@ -165,7 +125,12 @@ impl UciUcciEngine {
                 break;
             }
             match self.poll_line(Duration::from_millis(120)) {
-                EngineStdoutPoll::Disconnected { .. } => break,
+                EngineStdoutPoll::Disconnected { child_status } => {
+                    runtime_log::warn(format!(
+                        "[engine_analyze] disconnected child_status={child_status}"
+                    ));
+                    break;
+                }
                 EngineStdoutPoll::Tick => {}
                 EngineStdoutPoll::Line(line) => {
                     let line = line.trim();

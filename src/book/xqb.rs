@@ -2,7 +2,7 @@
 
 use super::{BookCandidate, BookResponse};
 use parking_lot::{Mutex, RwLock};
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -60,11 +60,7 @@ struct XqKey {
 }
 
 fn mirror_compare_value(cell: u8) -> i16 {
-    if cell == u8::MAX {
-        -1
-    } else {
-        cell as i16
-    }
+    if cell == u8::MAX { -1 } else { cell as i16 }
 }
 
 fn get_rows_and_cols(fen: &str) -> Option<(usize, usize)> {
@@ -374,7 +370,7 @@ pub fn query_local(fen: &str, move_uci: Option<String>, path: &str) -> BookRespo
 #[cfg(test)]
 mod tests {
     use super::{fen_to_key, query_local};
-    use rusqlite::{params, Connection};
+    use rusqlite::{Connection, params};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 

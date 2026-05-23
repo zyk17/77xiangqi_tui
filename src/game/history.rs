@@ -1,4 +1,4 @@
-use crate::xiangqi::{Board90, Side, STARTPOS_FEN};
+use crate::xiangqi::{Board90, STARTPOS_FEN, Side};
 
 #[derive(Debug, Clone)]
 pub struct MoveHistory {
@@ -164,7 +164,11 @@ mod tests {
     fn last_move_follows_view_index() {
         let mut h = MoveHistory::new_game();
         let fen2 = try_apply_fully_legal_uci(h.current_fen(), "h2e2").expect("move");
-        h.push_move(fen2, "h2e2".to_string(), vec!["h2e2".to_string(), "h7e7".to_string()]);
+        h.push_move(
+            fen2,
+            "h2e2".to_string(),
+            vec!["h2e2".to_string(), "h7e7".to_string()],
+        );
         assert_eq!(h.last_move_uci_at_view(), Some("h2e2"));
         assert!(h.pv_at_view().is_empty());
         assert!(h.go_prev());

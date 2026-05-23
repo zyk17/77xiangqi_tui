@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::analyze_infinite_line::{
-    apply_infinite_stdout_line, patch_store_from_state, InfiniteLineOutcome,
+    InfiniteLineOutcome, apply_infinite_stdout_line, patch_store_from_state,
 };
 use super::engine_core::UciUcciEngine;
 use super::info_state::EngineInfoState;
@@ -14,7 +14,9 @@ use crate::runtime_log;
 
 pub(crate) const INFINITE_STDOUT_POLL_MS: u64 = 50;
 
-fn lock_store(store: &Arc<Mutex<EngineAnalysisStore>>) -> std::sync::MutexGuard<'_, EngineAnalysisStore> {
+fn lock_store(
+    store: &Arc<Mutex<EngineAnalysisStore>>,
+) -> std::sync::MutexGuard<'_, EngineAnalysisStore> {
     store
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -107,7 +109,12 @@ impl UciUcciEngine {
                 }
             }
             match self.poll_line(Duration::from_millis(INFINITE_STDOUT_POLL_MS)) {
-                EngineStdoutPoll::Disconnected { .. } => break,
+                EngineStdoutPoll::Disconnected { child_status } => {
+                    runtime_log::warn(format!(
+                        "[engine_infinite] disconnected child_status={child_status}"
+                    ));
+                    break;
+                }
                 EngineStdoutPoll::Tick => {}
                 EngineStdoutPoll::Line(line) => {
                     if !session_live(live_session, session_id) {

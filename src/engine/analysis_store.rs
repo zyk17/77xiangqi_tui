@@ -3,7 +3,7 @@
 use crate::engine::analysis_types::{EngineAnalyzeResult, EngineInfoCandidate};
 use crate::engine::pv_ui::truncate_engine_pv_for_ui;
 use crate::engine::uci_ucci_engine::info_state::{
-    select_main_line_from_candidates, EngineInfoState,
+    EngineInfoState, select_main_line_from_candidates,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,10 +54,7 @@ pub fn analyze_result_from_info_state(st: &EngineInfoState) -> EngineAnalyzeResu
         st.depth_seen,
         st.mate,
     );
-    let score_cp = candidates
-        .first()
-        .and_then(|c| c.score_cp)
-        .map(i64::from);
+    let score_cp = candidates.first().and_then(|c| c.score_cp).map(i64::from);
     EngineAnalyzeResult {
         best_move,
         score,

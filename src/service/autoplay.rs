@@ -2,11 +2,9 @@ use std::time::{Duration, Instant};
 
 use crate::{
     book::{BookConfig, BookResponse},
-    engine::{
-        uci_ucci_engine::info_state::uci_xiangqi_best_ready, EngineAnalyzeResult,
-    },
+    engine::{EngineAnalyzeResult, uci_ucci_engine::info_state::uci_xiangqi_best_ready},
     game::GameState,
-    service::{book::BookQuery, AnalysisService, BookService},
+    service::{AnalysisService, BookService, book::BookQuery},
     xiangqi::Side,
 };
 
@@ -17,7 +15,10 @@ pub const BOOK_ARROW_DELAY: Duration = Duration::from_millis(72);
 pub enum AiPhase {
     #[default]
     Idle,
-    WaitingToApply { uci: String, ready_at: Instant },
+    WaitingToApply {
+        uci: String,
+        ready_at: Instant,
+    },
 }
 
 pub fn book_config_usable(cfg: &BookConfig) -> bool {

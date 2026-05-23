@@ -1,7 +1,7 @@
-use crate::engine::{pv_ui::truncate_engine_pv_for_ui, AnalysisSnapshot};
+use crate::engine::{AnalysisSnapshot, pv_ui::truncate_engine_pv_for_ui};
 use crate::game::{BoardArrow, GameState};
 use crate::xiangqi::{
-    parse_uci_coords, try_apply_fully_legal_uci, uci_from_coords, Board90, Side, STARTPOS_FEN,
+    Board90, STARTPOS_FEN, Side, parse_uci_coords, try_apply_fully_legal_uci, uci_from_coords,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,8 +87,8 @@ impl GameService {
 
     pub fn load_fen(game: &mut GameState, fen: &str) -> Result<(), String> {
         let fen = fen.trim();
-        let (board, side) = Board90::from_fen_with_side(fen)
-            .ok_or_else(|| "无法解析 FEN。".to_string())?;
+        let (board, side) =
+            Board90::from_fen_with_side(fen).ok_or_else(|| "无法解析 FEN。".to_string())?;
         let normalized = board.to_fen(side);
         game.history.reset_to_fen(normalized);
         game.board = board;

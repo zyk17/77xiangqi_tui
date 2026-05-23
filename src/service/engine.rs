@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use crate::engine::{
-    uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine},
     EngineAnalysisStore, EngineAnalyzeResult, EngineConfig, EngineStreamRuntime,
+    uci_ucci_engine::{EngineConfigureRequest, UciUcciEngine},
 };
 use crate::runtime_log;
 
@@ -57,8 +57,7 @@ impl EngineService {
         let result = eng.analyze_autoplay_once(fen);
         runtime_log::info(format!(
             "[autoplay] analyze done best_move={} depth={:?}",
-            result.best_move,
-            result.depth
+            result.best_move, result.depth
         ));
         result
     }

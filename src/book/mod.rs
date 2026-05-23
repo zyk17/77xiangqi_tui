@@ -110,13 +110,6 @@ impl BookResponse {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct BookSnapshot {
-    pub source: String,
-    pub best_move: Option<String>,
-    pub candidates: Vec<String>,
-}
-
 pub fn query_opening_book(
     fen: &str,
     move_uci: Option<String>,
@@ -135,7 +128,10 @@ pub fn query_opening_book(
             }
         }
         return apply_opening_book_pick_mode(
-            ensure_unified_opening_book_shape(chessdb::query_opening_book(fen, move_uci), "chessdb"),
+            ensure_unified_opening_book_shape(
+                chessdb::query_opening_book(fen, move_uci),
+                "chessdb",
+            ),
             cfg,
             for_eval,
         );
@@ -158,7 +154,10 @@ pub fn query_opening_book(
     }
     if want_cloud {
         return apply_opening_book_pick_mode(
-            ensure_unified_opening_book_shape(chessdb::query_opening_book(fen, move_uci), "chessdb"),
+            ensure_unified_opening_book_shape(
+                chessdb::query_opening_book(fen, move_uci),
+                "chessdb",
+            ),
             cfg,
             for_eval,
         );

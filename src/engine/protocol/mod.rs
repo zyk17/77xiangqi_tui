@@ -5,7 +5,7 @@ pub mod ucci;
 pub mod uci;
 
 pub(crate) use common::parse_uci_style_info_tokens;
-pub(crate) use common::{candidate_from_parsed, ParsedUciStyleInfo};
+pub(crate) use common::{ParsedUciStyleInfo, candidate_from_parsed};
 
 /// 与引擎子进程握手时选用的协议变体（`uci` / `ucci` 命令及就绪标记不同，后续 `setoption`/`position`/`go` 在本项目中按同一套文本发送）。
 pub trait EngineProtocol {

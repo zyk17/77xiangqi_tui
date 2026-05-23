@@ -1,7 +1,7 @@
 //! 无交互终端帧捕获，供调试与 CI 快照。
 
-use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 
 use crate::app::App;
 use crate::game::BoardArrow;

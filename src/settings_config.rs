@@ -205,7 +205,10 @@ fn parse_key(text: &str, key: &str) -> Option<String> {
 
 fn set_line(lines: &mut Vec<String>, key: &str, value: &str) {
     let prefix = format!("{key}=");
-    if let Some(index) = lines.iter().position(|line| line.trim().starts_with(&prefix)) {
+    if let Some(index) = lines
+        .iter()
+        .position(|line| line.trim().starts_with(&prefix))
+    {
         lines[index] = format!("{key}={value}");
     } else {
         lines.push(format!("{key}={value}"));
@@ -230,7 +233,10 @@ mod tests {
     #[test]
     fn pick_mode_normalizes() {
         assert_eq!(normalize_book_pick_mode("optimal"), "optimal");
-        assert_eq!(normalize_book_pick_mode("positive_random"), "positive_random");
+        assert_eq!(
+            normalize_book_pick_mode("positive_random"),
+            "positive_random"
+        );
         assert_eq!(normalize_book_pick_mode("other"), "optimal");
     }
 }
