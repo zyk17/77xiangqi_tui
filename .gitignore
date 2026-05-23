@@ -1,5 +1,11 @@
 target/
+logs/
 xiangqi_tui.conf
+NextStep.md
+TODO.md
+scripts/
+clippy.toml
+.cargo/
 .idea/
 *.log
 *.tmp

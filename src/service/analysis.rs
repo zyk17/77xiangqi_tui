@@ -127,13 +127,7 @@ fn board_arrow_from_uci(uci: &str) -> Option<BoardArrow> {
     if !uci_xiangqi_best_ready(uci) {
         return None;
     }
-    let b = uci.as_bytes();
-    Some(BoardArrow {
-        from_file: b[0] - b'a',
-        from_rank: b[1] - b'0',
-        to_file: b[2] - b'a',
-        to_rank: b[3] - b'0',
-    })
+    crate::service::game::arrow_from_uci(uci)
 }
 
 #[cfg(test)]
@@ -160,9 +154,9 @@ mod tests {
     fn board_arrow_parses_valid_uci() {
         let arrow = board_arrow_from_uci("h2e2").expect("arrow");
         assert_eq!(arrow.from_file, 7);
-        assert_eq!(arrow.from_rank, 2);
+        assert_eq!(arrow.from_rank, 7);
         assert_eq!(arrow.to_file, 4);
-        assert_eq!(arrow.to_rank, 2);
+        assert_eq!(arrow.to_rank, 7);
         assert!(board_arrow_from_uci("stub_move").is_none());
     }
 

@@ -8,9 +8,10 @@ use ratatui::{Terminal, backend::Backend, layout::Rect};
 use crate::{
     book::BookConfig,
     engine::EngineConfig,
-    game::{BoardArrow, GameState},
+    game::GameState,
     input::InputState,
-    service::{AppServices, CoordinateMove, ParsedCommand, SlashCommand},
+    service::{AppServices, CoordinateMove, GameService, ParsedCommand, SlashCommand},
+    xiangqi::Side,
     settings_config,
     ui::{self, HitTarget},
 };
@@ -199,7 +200,7 @@ impl App {
             self.services.engine.stop_stream();
             return;
         }
-        let fen = self.game.board.to_fen();
+        let fen = GameService::engine_fen(&self.game);
         let want_stream = self.game.realtime_eval || self.game.query_mode;
         self.services
             .engine
@@ -271,7 +272,13 @@ impl App {
             return;
         }
 
-        if let Some(hit) = ui::hit_test(mouse.column, mouse.row, self.board_area) {
+        if let Some(hit) = ui::hit_test(
+            mouse.column,
+            mouse.row,
+            self.board_area,
+            self.game.rotated,
+            self.game.last_move_uci.is_some(),
+        ) {
             match hit {
                 HitTarget::TopTab(tab) => self.switch_screen(match tab {
                     TopTab::Battle => Screen::Battle,
@@ -296,7 +303,20 @@ impl App {
                 }
                 HitTarget::BoardCell(file, rank) => {
                     self.focus = Focus::CommandInput;
-                    self.status = format!("预留棋盘点击：file={file}, rank={rank}");
+                    if let Some(uci) = GameService::try_click_cell(&mut self.game, file, rank)
+                    {
+                        self.apply_uci_move(&uci);
+                    } else if self.game.selected_cell == Some((file, rank)) {
+                        self.status = format!(
+                            "已选 {}{}，请点目标格。",
+                            (b'a' + file) as char,
+                            9 - rank
+                        );
+                    } else if !self.game.history.at_head() {
+                        self.status = "浏览历史中，请 /next 回到最新步再走子。".to_string();
+                    } else {
+                        self.status = "请先选择己方棋子。".to_string();
+                    }
                 }
             }
         }
@@ -354,37 +374,81 @@ impl App {
             return;
         }
 
-        let command = self.input.take_text().trim().to_ascii_lowercase();
+        let raw = self.input.take_text();
+        let command = raw.trim().to_ascii_lowercase();
         if command.is_empty() {
             return;
         }
         match self.services.command.parse(&command) {
             Ok(ParsedCommand::Move(mv)) => self.execute_move_command(mv),
-            Ok(ParsedCommand::Slash(command)) => self.execute_slash_command(command),
+            Ok(ParsedCommand::Slash(slash)) => {
+                self.execute_slash_command(slash, raw.trim());
+            }
             Err(err) => self.status = err.message(),
         }
     }
 
     fn execute_move_command(&mut self, mv: CoordinateMove) {
-        self.game.pending_arrow = Some(BoardArrow {
-            from_file: mv.from_file,
-            from_rank: mv.from_rank,
-            to_file: mv.to_file,
-            to_rank: mv.to_rank,
-        });
-        self.status = format!("预留着法输入：{}。后续接入 UCI/UCCI 与棋规校验。", mv.raw);
+        self.apply_uci_move(&mv.raw);
     }
 
-    fn execute_slash_command(&mut self, command: SlashCommand) {
+    fn apply_uci_move(&mut self, uci: &str) {
+        match GameService::apply_uci(&mut self.game, uci) {
+            Ok(()) => {
+                self.last_analysis_revision = 0;
+                self.refresh_engine_after_position_change();
+                let side = match self.game.side_to_move {
+                    Side::Red => "红",
+                    Side::Black => "黑",
+                };
+                self.status = format!("已走 {uci}，轮到{side}方。");
+            }
+            Err(err) => self.status = err.message(),
+        }
+    }
+
+    fn refresh_engine_after_position_change(&mut self) {
+        if self.game.realtime_eval || self.game.query_mode {
+            self.services.engine.stop_stream();
+            self.last_analysis_revision = 0;
+        }
+        self.tick_engine_stream();
+    }
+
+    fn execute_slash_command(&mut self, command: SlashCommand, raw: &str) {
         match command {
             SlashCommand::New => {
-                self.game.reset();
+                GameService::reset(&mut self.game);
                 self.refresh_engine_after_mode_change();
                 self.status = format!("已执行 {}，新游戏。", command.name());
             }
-            SlashCommand::Undo => self.status = "已识别 /undo。待接历史栈。".to_string(),
-            SlashCommand::Prev => self.status = "已识别 /prev。待接浏览模式。".to_string(),
-            SlashCommand::Next => self.status = "已识别 /next。待接浏览模式。".to_string(),
+            SlashCommand::Undo => {
+                if GameService::undo(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = "已悔棋。".to_string();
+                } else {
+                    self.status = "无法悔棋（已在初始局面）。".to_string();
+                }
+            }
+            SlashCommand::Prev => {
+                if GameService::go_prev(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = match self.game.last_move_uci.as_deref() {
+                        Some(m) => format!("浏览历史；当前局面上一手 {m}。"),
+                        None => "浏览历史；当前为初始局面。".to_string(),
+                    };
+                } else {
+                    self.status = "已在第一步。".to_string();
+                }
+            }
+            SlashCommand::Next => {
+                if GameService::go_next(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = "浏览下一步。".to_string();
+                } else {
+                    self.status = "已在最新步。".to_string();
+                }
+            }
             SlashCommand::RedAi => {
                 self.game.red_ai = !self.game.red_ai;
                 self.status = format!("红AI：{}", if self.game.red_ai { "开启" } else { "关闭" });
@@ -420,10 +484,23 @@ impl App {
                 self.refresh_engine_after_mode_change();
             }
             SlashCommand::CopyFen => {
-                self.status = format!("当前 FEN：{}", self.game.board.to_fen());
+                self.status = format!("当前 FEN：{}", GameService::engine_fen(&self.game));
             }
             SlashCommand::PasteFen => {
-                self.status = "粘贴 FEN 待接系统剪贴板。".to_string();
+                let fen = raw
+                    .strip_prefix("/pastefen")
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                match fen {
+                    Some(fen) => match GameService::load_fen(&mut self.game, fen) {
+                        Ok(()) => {
+                            self.refresh_engine_after_position_change();
+                            self.status = "已载入 FEN。".to_string();
+                        }
+                        Err(msg) => self.status = msg,
+                    },
+                    None => self.status = "用法：/pastefen <FEN>".to_string(),
+                }
             }
             SlashCommand::Exit | SlashCommand::Quit => {
                 self.should_quit = true;
@@ -490,11 +567,18 @@ impl App {
                 self.refresh_engine_after_mode_change();
             }
             BattleButton::NewGame => {
-                self.game.reset();
+                GameService::reset(&mut self.game);
                 self.refresh_engine_after_mode_change();
                 self.status = "已重置到初始局面。".to_string();
             }
-            BattleButton::Undo => self.status = "悔棋逻辑待接入。".to_string(),
+            BattleButton::Undo => {
+                if GameService::undo(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = "已悔棋。".to_string();
+                } else {
+                    self.status = "无法悔棋。".to_string();
+                }
+            }
             BattleButton::RotateBoard => {
                 self.game.rotated = !self.game.rotated;
                 self.status = format!(
@@ -506,12 +590,28 @@ impl App {
                     }
                 );
             }
-            BattleButton::PrevMove => self.status = "上一步浏览逻辑待接入。".to_string(),
-            BattleButton::NextMove => self.status = "下一步浏览逻辑待接入。".to_string(),
-            BattleButton::CopyFen => {
-                self.status = format!("当前 FEN：{}", self.game.board.to_fen())
+            BattleButton::PrevMove => {
+                if GameService::go_prev(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = "浏览上一步。".to_string();
+                } else {
+                    self.status = "已在第一步。".to_string();
+                }
             }
-            BattleButton::PasteFen => self.status = "粘贴 FEN 待接系统剪贴板。".to_string(),
+            BattleButton::NextMove => {
+                if GameService::go_next(&mut self.game) {
+                    self.refresh_engine_after_position_change();
+                    self.status = "浏览下一步。".to_string();
+                } else {
+                    self.status = "已在最新步。".to_string();
+                }
+            }
+            BattleButton::CopyFen => {
+                self.status = format!("当前 FEN：{}", GameService::engine_fen(&self.game))
+            }
+            BattleButton::PasteFen => {
+                self.status = "在 C 区输入：/pastefen <FEN>".to_string();
+            }
         }
     }
 }
