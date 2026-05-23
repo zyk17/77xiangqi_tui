@@ -76,7 +76,6 @@ pub fn hit_test(
     row: u16,
     board_area: Option<Rect>,
     rotated: bool,
-    board_has_last_move_line: bool,
 ) -> Option<HitTarget> {
     if row <= 2 {
         return if column < 40 {
@@ -114,10 +113,7 @@ pub fn hit_test(
     }
 
     let local_x = column.saturating_sub(area.x + 4);
-    let mut local_y = row.saturating_sub(area.y + 2);
-    if board_has_last_move_line {
-        local_y = local_y.saturating_sub(1);
-    }
+    let local_y = row.saturating_sub(area.y + 2);
     let col = (local_x / 4).min(8) as u8;
     let screen_row = (local_y / 2).min(9) as u8;
     let (file, rank) = display_cell_to_internal(col, screen_row, rotated);
@@ -172,7 +168,6 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> Rect {
         app.game.last_move_arrow,
         app.game.pending_arrow,
         app.game.selected_cell,
-        app.game.last_move_uci.as_deref(),
     );
     render_buttons(frame, right[0], app);
     render_eval_panel(frame, right[1], app);
@@ -261,12 +256,8 @@ fn render_board(
     last_arrow: Option<BoardArrow>,
     pending_arrow: Option<BoardArrow>,
     selected: Option<(u8, u8)>,
-    last_move_uci: Option<&str>,
 ) -> Rect {
-    let mut lines = Vec::with_capacity(26);
-    if let Some(uci) = last_move_uci {
-        lines.push(Line::from(Span::styled(format!("上一手 {uci}"), accent())));
-    }
+    let mut lines = Vec::with_capacity(25);
     lines.push(Line::from(grid_border('┌', '┬', '┐')));
     for screen_row in 0..10_u8 {
         let internal_rank = if rotated {

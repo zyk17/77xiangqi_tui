@@ -277,7 +277,6 @@ impl App {
             mouse.row,
             self.board_area,
             self.game.rotated,
-            self.game.last_move_uci.is_some(),
         ) {
             match hit {
                 HitTarget::TopTab(tab) => self.switch_screen(match tab {
@@ -312,8 +311,6 @@ impl App {
                             (b'a' + file) as char,
                             9 - rank
                         );
-                    } else if !self.game.history.at_head() {
-                        self.status = "浏览历史中，请 /next 回到最新步再走子。".to_string();
                     } else {
                         self.status = "请先选择己方棋子。".to_string();
                     }
@@ -422,32 +419,8 @@ impl App {
                 self.refresh_engine_after_mode_change();
                 self.status = format!("已执行 {}，新游戏。", command.name());
             }
-            SlashCommand::Undo => {
-                if GameService::undo(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = "已悔棋。".to_string();
-                } else {
-                    self.status = "无法悔棋（已在初始局面）。".to_string();
-                }
-            }
-            SlashCommand::Prev => {
-                if GameService::go_prev(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = match self.game.last_move_uci.as_deref() {
-                        Some(m) => format!("浏览历史；当前局面上一手 {m}。"),
-                        None => "浏览历史；当前为初始局面。".to_string(),
-                    };
-                } else {
-                    self.status = "已在第一步。".to_string();
-                }
-            }
-            SlashCommand::Next => {
-                if GameService::go_next(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = "浏览下一步。".to_string();
-                } else {
-                    self.status = "已在最新步。".to_string();
-                }
+            SlashCommand::Undo | SlashCommand::Prev | SlashCommand::Next => {
+                self.status = "悔棋/历史浏览未实现；仅保留走子后的棋盘提示。".to_string();
             }
             SlashCommand::RedAi => {
                 self.game.red_ai = !self.game.red_ai;
@@ -572,12 +545,7 @@ impl App {
                 self.status = "已重置到初始局面。".to_string();
             }
             BattleButton::Undo => {
-                if GameService::undo(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = "已悔棋。".to_string();
-                } else {
-                    self.status = "无法悔棋。".to_string();
-                }
+                self.status = "悔棋未实现。".to_string();
             }
             BattleButton::RotateBoard => {
                 self.game.rotated = !self.game.rotated;
@@ -590,21 +558,8 @@ impl App {
                     }
                 );
             }
-            BattleButton::PrevMove => {
-                if GameService::go_prev(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = "浏览上一步。".to_string();
-                } else {
-                    self.status = "已在第一步。".to_string();
-                }
-            }
-            BattleButton::NextMove => {
-                if GameService::go_next(&mut self.game) {
-                    self.refresh_engine_after_position_change();
-                    self.status = "浏览下一步。".to_string();
-                } else {
-                    self.status = "已在最新步。".to_string();
-                }
+            BattleButton::PrevMove | BattleButton::NextMove => {
+                self.status = "历史浏览未实现。".to_string();
             }
             BattleButton::CopyFen => {
                 self.status = format!("当前 FEN：{}", GameService::engine_fen(&self.game))

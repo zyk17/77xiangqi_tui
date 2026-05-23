@@ -3,10 +3,6 @@ use crate::{
     xiangqi::{Board90, Side},
 };
 
-mod history;
-
-pub use history::MoveHistory;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoardArrow {
     pub from_file: u8,
@@ -19,7 +15,6 @@ pub struct BoardArrow {
 pub struct GameState {
     pub board: Board90,
     pub side_to_move: Side,
-    pub history: MoveHistory,
     pub red_ai: bool,
     pub black_ai: bool,
     pub query_mode: bool,
@@ -37,7 +32,6 @@ impl Default for GameState {
         Self {
             board: Board90::startpos(),
             side_to_move: Side::Red,
-            history: MoveHistory::new_game(),
             red_ai: false,
             black_ai: false,
             query_mode: false,
