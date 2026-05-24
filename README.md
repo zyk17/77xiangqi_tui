@@ -107,7 +107,3 @@ docs/
 scripts/
   check.ps1         测试 + lint-strict
 ```
-
-## 参考仓库
-
-GUI 对弈页实现：`C:\projects\77xiangqi`（Tauri 后端引擎 supervisor、流式分析、模式停机逻辑为主要参考）。
