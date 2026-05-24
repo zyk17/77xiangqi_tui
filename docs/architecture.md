@@ -2,116 +2,88 @@
 
 ## 目标
 
-做一个小型、直接、可维护的象棋 TUI。
+小型、直接、可维护的象棋 TUI；行为与 GUI 对弈页对齐，避免在 TUI 内另起一套异步或数据模型。
 
 ## 版面
 
 - `A`: 棋盘
 - `B`: 游戏按钮组
 - `C`: 交互命令输入区
-- `D`: 实时评估区
+- `D`: 实时评估区（始终显示；关闭实时模式时内容可为 idle）
 
-### 棋盘显示约束
-
-- 棋盘最左侧必须标 `0~9`
-- 棋盘最下侧必须标 `a~i`
-- 必须显示上一手走子记号
-- 查询模式与自动走子在实际落子前必须先显示箭头
-
-`C` 区负责两类输入：
-
-1. 直接输入着法字符串，例如 `h2e2`
-2. 输入 `/` 命令，例如 `/new`、`/undo`、`/rai`
-
-`C` 区是横跨全宽的单输入框，不再拆独立命令检索面板。
-
-普通着法输入格式固定为：
-
-```text
-[a-i][0-9][a-i][0-9]
-```
-
-完整命令见 [docs/interaction.md](/C:/projects/77xiangqi_tui/docs/interaction.md)
+棋盘约束、命令表、终局行为见 [interaction.md](interaction.md)。
 
 ## 模块职责
 
-当前推荐依赖方向：
+推荐依赖方向：
 
 ```text
-app -> service -> engine/book/xiangqi
+app -> service -> engine / book / xiangqi
 app -> game
-ui  -> app/game
+ui  -> app / game（只读渲染）
 game -> xiangqi
 ```
 
 原则：
 
-- `app` 薄，只处理事件循环、输入分发、焦点、页面切换
-- `service` 薄，但集中承接命令解析、引擎调用、开局库查询、评估更新
-- `ui` 不主动“取数”，只渲染当前内存状态
-- 不做前后端式 JSON 数据流；统一使用 Rust struct / enum
+- `app`：事件循环、焦点、模式开关、调度 `tick_*`，不堆协议细节
+- `service`：命令解析、引擎/棋库/分析收口
+- `ui`：只渲染当前内存状态，不主动拉引擎
+- 模块间用 Rust struct / enum，不做 JSON 桥接
 
 ### `src/xiangqi`
 
-- `u8[90]` 棋盘
-- FEN
-- 走法与规则
-- 胜负判定
+- `u8[90]` 棋盘、FEN、规则、胜负
+- **全局 UCI** 坐标；`rotated` 仅影响显示与屏幕命中映射
 
 ### `src/engine`
 
-- UCI / UCCI 协议
-- 引擎进程
-- 分析结果标准化
-- 需要继续参考 GUI 的额外进程调用与流式调用实现
+- UCI/UCCI 子进程、`EngineAnalysisStore` 流式快照
+- `EngineStreamRuntime`：后台 `go infinite` 与 AI `go movetime` 互斥
+- 停流时向引擎发 `stop` 并 join；无消费者时 `terminate` 子进程
 
 ### `src/book`
 
-- 本地库
-- 云库
-- 命中结果标准化
+- 本地 OBK、云库、`query_opening_book`
 
 ### `src/game`
 
-- 对局状态
-- 历史栈
-- 评估汇总
-- `best_move` / `pv` / 评估 7 项字段的 TUI 快照
-- 上一手与待落子箭头等棋盘提示状态
+- 对局、历史栈、评估快照、选子/箭头/上一手
 
 ### `src/service`
 
-- `command`: 输入解析与命令归一化
-- `book`: 开局库统一查询入口
-- `engine`: 引擎统一调用入口
-- `analysis`: 评估快照更新与聚合
-- 负责隔离复制来的旧接口和当前 TUI 内存态模型
+| 模块 | 职责 |
+|------|------|
+| `command` | 着法与 Slash 解析 |
+| `engine` | `EngineService` → `EngineStreamRuntime` |
+| `engine_policy` | 是否挂 `go infinite`（对齐 GUI `shouldAttachInfiniteStreamPlay`） |
+| `analysis` | 引擎/棋库结果写入 `AnalysisSnapshot` |
+| `autoplay` | AI 阶段、箭头、棋库展示应用 |
+| `book_async` | 开局库 **单 worker** 队列；`generation` 与主线程共享，避免堆积 join 线程 |
 
 ### `src/app`
 
-- 终端事件循环
-- 焦点管理
-- 命令输入与提交
+- `run()`：`poll` → `tick_book_queries` / `tick_engine_stream` / `tick_ai_autoplay` → **按需** `draw`
+- `sync_engine_lifecycle`：无模式需要时释放引擎进程
 
 ### `src/ui`
 
-- ratatui 渲染
-- 鼠标点击命中
-- 棋盘与表单布局
-- 全局按钮封装
-- `D` 区 7 项评估表格与 PV 列表渲染
+- 棋盘网格、按钮面板、D 区表格与 PV、设置页、帮助浮层
 
-## 迁移策略
+## 并发模型（非 async/await）
 
-- `engine` / `book`：直接从 GUI 后端复制，再拆依赖
-- 引擎/开局库结果统一为 Rust struct，经 `service` 收口到 `game` / `ui`
-- `xiangqi`：参考现有实现，但按 TUI 需求重写
-- `ui` / `game`：独立实现
+```text
+主线程                     后台线程
+────────                   ────────
+poll 输入 ~16ms            engine: go infinite / go movetime
+tick → 读 store revision   book_async: query_opening_book
+dirty → terminal.draw()    engine: stdout 读行（已有）
+```
 
-## UI 参考策略
+- 不使用 Tokio；与 GUI Tauri 后端 `thread::spawn` + `Mutex` 一致。
+- D 区数值刷新节流约 **200ms**（`EVAL_PANEL_REFRESH_MS`）；棋盘重绘不与此绑定。
 
-- 按钮 UI 字体
-- 按钮布局
-- 按钮实现逻辑
+## 迁移与参考
 
-可完全参考 GUI 仓库 `C:\projects\77xiangqi`
+- `engine` / `book`：从 GUI 后端复制后做 TUI 适配
+- 模式停机、infinite 策略、双电脑+仅实时评估不挂流等：对照 `C:\projects\77xiangqi` 前端 `playEngine*` 与 `tauri_backend` `engine_runtime`

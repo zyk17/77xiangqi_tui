@@ -235,22 +235,26 @@ impl Default for App {
 
 impl App {
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()> {
+        let mut needs_redraw = true;
         while !self.should_quit {
             let has_event = event::poll(INPUT_POLL)?;
 
             // AI 先走子再开流式，避免 infinite 与 autoplay 抢同一引擎锁/进程
-            self.tick_book_queries();
+            let mut dirty = self.tick_book_queries();
             if ai_enabled_for_side(&self.game) && self.screen == Screen::Battle {
-                self.tick_ai_autoplay();
-                self.tick_engine_stream();
+                dirty |= self.tick_ai_autoplay();
+                dirty |= self.tick_engine_stream();
             } else {
-                self.tick_engine_stream();
-                self.tick_ai_autoplay();
+                dirty |= self.tick_engine_stream();
+                dirty |= self.tick_ai_autoplay();
             }
-            terminal.draw(|frame| {
-                let output = ui::render(frame, self);
-                self.ui_regions = Some(output.regions);
-            })?;
+            if needs_redraw || dirty {
+                terminal.draw(|frame| {
+                    let output = ui::render(frame, self);
+                    self.ui_regions = Some(output.regions);
+                })?;
+                needs_redraw = false;
+            }
 
             if !has_event {
                 continue;
@@ -258,10 +262,16 @@ impl App {
 
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    self.on_key(key.code, key.modifiers)
+                    self.on_key(key.code, key.modifiers);
+                    needs_redraw = true;
                 }
-                Event::Mouse(mouse) => self.on_mouse(mouse),
-                Event::Resize(_, _) => {}
+                Event::Mouse(mouse) => {
+                    self.on_mouse(mouse);
+                    needs_redraw = true;
+                }
+                Event::Resize(_, _) => {
+                    needs_redraw = true;
+                }
                 _ => {}
             }
         }
@@ -319,13 +329,13 @@ impl App {
             .spawn_if_needed(fen, &self.book, BookQueryKind::Display);
     }
 
-    fn tick_book_queries(&mut self) {
+    fn tick_book_queries(&mut self) -> bool {
         let Some((done_fen, kind, response)) = self.services.book_queries.poll() else {
-            return;
+            return false;
         };
         let fen_now = GameService::engine_fen(&self.game);
         if done_fen != fen_now {
-            return;
+            return false;
         }
         match kind {
             BookQueryKind::Display => {
@@ -341,6 +351,7 @@ impl App {
                 if hit && !self.book_blocks_engine {
                     self.last_analysis_revision = 0;
                 }
+                true
             }
             BookQueryKind::Autoplay => {
                 self.book_autoplay_checked_fen = done_fen;
@@ -350,27 +361,29 @@ impl App {
                         uci,
                         BOOK_ARROW_DELAY.max(AI_MOVE_DELAY),
                     );
+                    return true;
                 }
+                false
             }
         }
     }
 
-    /// 流式引擎：后台 `go infinite` 写共享快照，每帧刷新 `D` 区（对齐 GUI `analysis_stream` 思路，无 JSON/Tauri）。
-    fn tick_engine_stream(&mut self) {
+    /// 流式引擎：后台 `go infinite` 写共享快照，按节流刷新 `D` 区（对齐 GUI `analysis_stream`）。
+    fn tick_engine_stream(&mut self) -> bool {
         if self.game.is_game_over() {
             self.services.engine.stop_stream();
             self.sync_engine_lifecycle();
-            return;
+            return false;
         }
         if self.screen != Screen::Battle {
             self.services.engine.stop_stream();
             self.sync_engine_lifecycle();
-            return;
+            return false;
         }
         if !self.game.history.at_head() {
             self.services.engine.stop_stream();
             self.sync_engine_lifecycle();
-            return;
+            return false;
         }
         let fen = GameService::engine_fen(&self.game);
         let want_eval = self.game.realtime_eval || self.game.query_mode;
@@ -383,17 +396,17 @@ impl App {
             .ensure_stream(&fen, &self.engine, want_stream);
         if !want_stream {
             self.sync_engine_lifecycle();
-            return;
+            return false;
         }
         if self.last_eval_panel_refresh.elapsed() < EVAL_PANEL_REFRESH_MS {
-            return;
+            return false;
         }
         let Some((store, revision)) = self
             .services
             .engine
             .snapshot_if_newer(self.last_analysis_revision)
         else {
-            return;
+            return false;
         };
         self.last_analysis_revision = revision;
         self.last_eval_panel_refresh = Instant::now();
@@ -404,6 +417,7 @@ impl App {
             show_arrow,
             &mut self.game.pending_arrow,
         );
+        true
     }
 
     fn reset_analysis_tracking(&mut self) {
@@ -418,30 +432,26 @@ impl App {
         self.services.book_queries.cancel();
     }
 
-    fn tick_ai_autoplay(&mut self) {
+    fn tick_ai_autoplay(&mut self) -> bool {
         if self.game.is_game_over() {
-            self.ai_phase = AiPhase::Idle;
-            return;
+            return self.clear_ai_phase_if_needed();
         }
         if self.screen != Screen::Battle {
-            self.ai_phase = AiPhase::Idle;
-            return;
+            return self.clear_ai_phase_if_needed();
         }
 
         if let Some(result) = self.services.engine.poll_autoplay_done() {
             self.finish_autoplay_engine_result(result);
-            return;
+            return true;
         }
 
         if self.services.engine.is_autoplay_running() {
-            self.sync_autoplay_thinking_arrow();
-            self.status = "电脑思考中（引擎分析）…".to_string();
-            return;
+            return self.sync_autoplay_thinking_arrow();
         }
 
         if let AiPhase::WaitingToApply { uci, ready_at } = &self.ai_phase {
             if Instant::now() < *ready_at {
-                return;
+                return false;
             }
             let uci = uci.clone();
             self.ai_phase = AiPhase::Idle;
@@ -458,24 +468,23 @@ impl App {
                 }
                 Err(err) => self.status = err.message(),
             }
-            return;
+            return true;
         }
 
         if !ai_enabled_for_side(&self.game) {
-            self.ai_phase = AiPhase::Idle;
-            return;
+            return self.clear_ai_phase_if_needed();
         }
         if self.game.query_mode {
-            return;
+            return false;
         }
         if !self.game.history.at_head() {
-            return;
+            return false;
         }
 
         let fen = GameService::engine_fen(&self.game);
         if should_try_book_for_autoplay(&self.game, &self.book) {
             if self.services.book_queries.is_busy() {
-                return;
+                return false;
             }
             if self.book_autoplay_checked_fen != fen {
                 self.services.book_queries.spawn_if_needed(
@@ -483,42 +492,66 @@ impl App {
                     &self.book,
                     BookQueryKind::Autoplay,
                 );
-                return;
+                return false;
             }
         }
 
         if self.engine.path.trim().is_empty() {
-            self.status = "红/黑电脑：请先在设置中配置引擎路径。".to_string();
-            return;
+            let msg = "红/黑电脑：请先在设置中配置引擎路径。";
+            if self.status != msg {
+                self.status = msg.to_string();
+                return true;
+            }
+            return false;
         }
 
         if self
             .ai_engine_retry_after
             .is_some_and(|t| Instant::now() < t)
         {
-            return;
+            return false;
         }
 
         self.services.engine.spawn_autoplay_once(&fen, &self.engine);
-        self.status = "电脑思考中（引擎分析）…".to_string();
+        let msg = "电脑思考中（引擎分析）…";
+        if self.status != msg {
+            self.status = msg.to_string();
+        }
+        true
+    }
+
+    fn clear_ai_phase_if_needed(&mut self) -> bool {
+        if matches!(self.ai_phase, AiPhase::Idle) {
+            return false;
+        }
+        self.ai_phase = AiPhase::Idle;
+        true
     }
 
     /// 引擎 `go` 思考中：箭头随 store 更新；D 区数值仍按 [`EVAL_PANEL_REFRESH_MS`] 节流。
-    fn sync_autoplay_thinking_arrow(&mut self) {
+    fn sync_autoplay_thinking_arrow(&mut self) -> bool {
+        let msg = "电脑思考中（引擎分析）…";
+        let status_dirty = self.status != msg;
+        if status_dirty {
+            self.status = msg.to_string();
+        }
         let fen = GameService::engine_fen(&self.game);
         let Some((store, revision)) = self
             .services
             .engine
             .snapshot_if_newer(self.last_autoplay_analysis_revision)
         else {
-            return;
+            return status_dirty;
         };
         if store.fen != fen {
-            return;
+            return status_dirty;
         }
         self.last_autoplay_analysis_revision = revision;
         let best = store.result.best_move.as_str();
+        let prev_arrow = self.game.pending_arrow;
         AutoplayService::set_pending_arrow(&mut self.game, best);
+        let arrow_dirty = self.game.pending_arrow != prev_arrow;
+        let mut panel_dirty = false;
         if self.last_eval_panel_refresh.elapsed() >= EVAL_PANEL_REFRESH_MS {
             self.services.analysis.apply_engine_result(
                 &mut self.game.analysis,
@@ -526,7 +559,9 @@ impl App {
                 &fen,
             );
             self.last_eval_panel_refresh = Instant::now();
+            panel_dirty = true;
         }
+        status_dirty || arrow_dirty || panel_dirty
     }
 
     fn finish_autoplay_engine_result(&mut self, result: crate::engine::EngineAnalyzeResult) {
@@ -640,11 +675,10 @@ impl App {
 
     fn status_with_session_over(&self, detail: impl Into<String>) -> String {
         let detail = detail.into();
-        if let Some(msg) = &self.game.game_over {
-            if !self.game.history.at_head() {
+        if let Some(msg) = &self.game.game_over
+            && !self.game.history.at_head() {
                 return format!("{detail}（本盘已结束：{msg}）");
             }
-        }
         detail
     }
 

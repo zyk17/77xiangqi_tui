@@ -130,15 +130,14 @@ fn cached(path: &str) -> Result<CachedLookup, String> {
     let path = path.trim();
     {
         let g = CACHE.read();
-        if let Some(c) = g.as_ref() {
-            if c.path == path {
+        if let Some(c) = g.as_ref()
+            && c.path == path {
                 return Ok((
                     Arc::clone(&c.conn),
                     c.idx_conn.as_ref().map(Arc::clone),
                     c.kind,
                 ));
             }
-        }
     }
     let (conn, kind) = connection_for_path(path)?;
     let arc = Arc::new(Mutex::new(conn));
@@ -425,13 +424,12 @@ pub fn optimize_idx_sidecar(
                 } else {
                     skipped_rows += 1;
                 }
-                if let Some(ref mut cb) = on_progress {
-                    if processed == total_rows
-                        || (progress_stride > 0 && processed % progress_stride == 0)
+                if let Some(ref mut cb) = on_progress
+                    && (processed == total_rows
+                        || (progress_stride > 0 && processed.is_multiple_of(progress_stride)))
                     {
                         cb(processed, total_rows);
                     }
-                }
             }
             drop(insert);
             tx.execute("CREATE INDEX idx_vkey ON key_index(vkey)", [])

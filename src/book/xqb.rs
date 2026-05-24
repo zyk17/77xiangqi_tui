@@ -30,11 +30,10 @@ fn cached(path: &str) -> Result<SharedConn, String> {
     let path = path.trim();
     {
         let g = CACHE.read();
-        if let Some(c) = g.as_ref() {
-            if c.path == path {
+        if let Some(c) = g.as_ref()
+            && c.path == path {
                 return Ok(Arc::clone(&c.conn));
             }
-        }
     }
     let conn = Connection::open_with_flags(
         path,

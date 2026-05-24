@@ -73,3 +73,6 @@
 - 但“额外进程调用”和“流式调用”仍然值得继续参考与复制 GUI 仓库实现
 - 查询期间 `pv` 与 `best_move` 都可能变化，TUI 状态层要按流式结果持续更新
 - `app/game/ui` 统一使用 `EngineAnalyzeResult` / `AnalysisSnapshot` 等 Rust 结构，不经过 JSON
+- 引擎/棋库在 **后台 `std::thread`** 中运行，主循环按需 `draw`；不要用 Tokio 另起一套模型
+- 开局库查询走 `service/book_async`（单 worker + 共享 `generation`），勿在主线程同步 `query_opening_book`
+- 模式全关时必须 `stop` + `terminate` 引擎子进程，对齐 GUI `clear_engine_mode_state` / `prepare_for_next_engine_command`

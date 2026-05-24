@@ -1,114 +1,113 @@
 # 77 Xiangqi TUI
 
-这是一个小巧的 `ratatui` 中国象棋终端应用。
+77象棋TUI 是一个基于 [ratatui](https://github.com/ratatui/ratatui) 的中国象棋终端客户端，引擎与开局库实现对齐 GUI 仓库 [`77xiangqi`](C:\projects\77xiangqi)，数据在进程内用 Rust 结构传递，不经 JSON。
 
-当前仓库已经完成第一阶段初始化：
+## 功能概览
 
-- Cargo 工程已创建
-- Git 仓库已初始化
-- `src` 模块骨架已建立
-- 最小 TUI 已可编译运行
-- 已建立薄 `service` 层骨架
-- 布局已按最新定义修正：
-  - `A`: 棋盘
-  - `B`: 游戏按钮组
-  - `C`: 交互命令输入区
-  - `D`: 实时评估区
+| 区域 | 说明 |
+|------|------|
+| **A** 棋盘 | 坐标轴、上一手记号、选子/光标网格高亮、待走箭头 |
+| **B** 按钮 | 红/黑电脑、查询、实时评估、新局、悔棋、步进、FEN、旋转 |
+| **C** 命令 | 着法 `h2e2`、Slash 命令、Tab 补全 |
+| **D** 评估 | 7 项统计表 + PV（流式更新，约 200ms 节流） |
 
-## 当前交互定义
+- **红/黑电脑**：后台 `go` 自动走子，思考中更新箭头与 D 区
+- **查询 / 实时评估**：后台 `go infinite` 共享分析流（策略对齐 GUI `shouldAttachInfiniteStreamPlay`）
+- **开局库**：本地/云库异步查询（单 worker），命中可展示或阻挡引擎
+- **终局**：自动停止模式与引擎；可浏览棋谱，`/new` 开新局
 
-- `A` 棋盘必须标注坐标系：
-  - 最左侧标 `0~9`
-  - 最下侧标 `a~i`
-- 普通输入支持所有四字符 UCI/UCCI 坐标着法：
-  - 格式：`[a-i][0-9][a-i][0-9]`
-  - 示例：`h2e2`、`h0g2`
-- `C` 区是单一输入框：
-  - 横跨左右区域
-  - 不拆独立命令检索面板
-  - 普通着法与 Slash 命令都从这里输入
-- `D` 区是实时评估区，不是命令区
-- `D` 区上半部固定为 7 项表格：
-  - 用时
-  - 深度
-  - NPS
-  - 节点
-  - 分数
-  - 推荐
-  - 红/黑胜率
-- `D` 区下半部为 PV 列表
-  - 单条 PV 最多展示 16 步
-  - 查询期间 `pv` 与 `best_move` 都可能持续变化
-- 内部数据交互不再走 JSON：
-  - `app/game/ui/service` 间统一使用 Rust struct / enum
-  - UI 直接读取内存中的最新状态驱动刷新
-- 当前开关模式：
-  - 红 AI
-  - 黑 AI
-  - 查询模式
-  - 实时评估
-- UI 需要显示“上一手走子记号”
-- 查询模式与自动走子在真正落子前，需要先显示箭头提示
-- 当前没有计时器区、没有沙盘、没有“查看思考细节”
-
-## 命令大全
-
-- 普通着法输入：
-  - `[a-i][0-9][a-i][0-9]`
-- Slash 命令：
-  - `/new`：新游戏
-  - `/undo`：悔棋
-  - `/prev`：上一步
-  - `/next`：下一步
-  - `/rai`：红 AI 开关
-  - `/bai`：黑 AI 开关
-  - `/query`：查询模式开关
-  - `/rotate`：旋转棋盘
-  - `/copyfen`：复制 FEN
-  - `/pastefen`：粘贴 FEN
-  - `/eval`：实时评估开关
-  - `/exit`：退出软件
-  - `/quit`：退出软件
-
-## 运行
+## 构建与运行
 
 ```bash
 cargo run
 ```
 
-## 当前交互
+发布构建（`Cargo.toml` 已配置 `lto` / `strip`）：
 
-- `Tab` / `Shift+Tab`：切换焦点
-- 方向键 / `hjkl`：移动焦点
-- `Enter`：提交命令
-- 在 `C` 区可直接输入：
-  - 着法字符串，如 `h2e2`
-  - Slash 命令，如 `/new`、`/undo`、`/query`、`/rotate`、`/eval`、`/exit`
+```bash
+cargo build --release
+```
 
-## 模块
+### 质量检查
+
+```bash
+cargo test
+cargo lint-strict    # 或: cargo check 后见 .cargo/config.toml 别名
+```
+
+Windows 一键：
+
+```powershell
+.\scripts\check.ps1
+```
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `XIANGQI_ENGINE_PATH` | 默认引擎可执行文件路径（亦可在设置页配置） |
+| `XIANGQI_TUI_DEBUG=1` | 写入 `logs/runtime.log` 调试日志 |
+
+## 操作
+
+### 焦点与页面
+
+- **Tab**：对弈 ↔ 设置（命令框内 Tab 为 Slash 补全）
+- **顶栏**：鼠标点「对弈 / 设置」
+- **?** 或 **`/help`**：操作说明浮层（Esc 关闭）
+- **Ctrl+C**：退出
+
+### 棋盘（焦点在 A 时）
+
+- **方向键**：移动光标（**全局 UCI** 坐标，与 `rotated` 无关）
+- **空格**：选己方子 / 点目标格走子；再点己方子可改选
+- **:** 或 **/**：进入 C 区命令输入
+
+### 着法与命令
+
+- 着法：`[a-i][0-9][a-i][0-9]`，例如 `h2e2`
+- Slash 命令见下表（在 C 区输入，Enter 提交）
+
+| 命令 | 作用 |
+|------|------|
+| `/new` | 停止全部模式并开新局 |
+| `/stop` | 停止电脑/查询/实时/引擎；**不改变**当前棋谱 |
+| `/undo` | 悔棋 |
+| `/prev` `/next` | 浏览棋谱 |
+| `/rai` `/bai` | 红/黑电脑开关 |
+| `/query` `/eval` | 查询模式 / 实时评估开关 |
+| `/rotate` | 旋转棋盘显示 |
+| `/copyfen` | 复制 FEN 到剪贴板 |
+| `/pastefen <FEN>` | 粘贴 FEN（可含空格，如 `w - - 0 1`） |
+| `/help` | 帮助浮层 |
+| `/exit` `/quit` | 退出 |
+
+## 架构要点
+
+- **主线程**：`crossterm` 事件轮询（约 16ms）；仅在输入、分析更新、AI/棋库状态变化等 **dirty** 时全屏重绘，空闲时不刷 60fps。
+- **后台线程**：引擎 `go infinite` / AI `go`、开局库查询；通过 `Arc<Mutex<EngineAnalysisStore>>` 等与主线程交换快照。
+- **不使用 tokio**：UCI 阻塞协议 + 同步 TUI，与 GUI Rust 后端「线程 + 锁」模型一致。
+
+模块与依赖见 [docs/architecture.md](docs/architecture.md)，交互细则见 [docs/interaction.md](docs/interaction.md)，协作约定见 [AGENT.md](AGENT.md)。
+
+## 目录结构
 
 ```text
 src/
-  app/       事件循环、命令输入、页面切换
-  book/      开局库接入
-  engine/    UCI/UCCI 接入
-  game/      对局状态与评估聚合
-  service/   命令、分析、开局库、引擎调用收口
-  ui/        ratatui 渲染
-  xiangqi/   u8[90] 棋盘核心
+  app/              事件循环、模式调度、引擎/棋库 tick
+  book/             开局库（本地 OBK / 云库）
+  engine/           UCI/UCCI 进程与流式分析
+  game/             对局状态、历史、评估快照
+  service/          command / analysis / autoplay / engine / book_async
+  ui/               ratatui 渲染与命中
+  xiangqi/          棋盘、规则、FEN、UCI
 docs/
   architecture.md
+  interaction.md
+scripts/
+  check.ps1         测试 + lint-strict
 ```
 
 ## 参考仓库
 
-GUI 仓库在 `C:\projects\77xiangqi`。
-
-后续策略：
-
-- `engine`、`book`：直接复制 GUI 后端相关实现再做 TUI 适配
-- `service`：承接业务访问入口，避免把协议/查询/命令细节堆进 `app`
-- 引擎额外进程调用与流式调用仍然值得参考 GUI 仓库，不应因为当前精简而放弃
-- `xiangqi`：围绕 `u8[90]` 重写
-- `ui`、`game`：按 TUI 交互模型重做
-- 按钮 UI 字体与交互逻辑可直接参考 `C:\projects\77xiangqi`
+GUI 对弈页实现：`C:\projects\77xiangqi`（Tauri 后端引擎 supervisor、流式分析、模式停机逻辑为主要参考）。

@@ -197,11 +197,10 @@ impl UciUcciEngine {
             st.mate = main_mate;
             score_cp = cand_list[0].score_cp.map(i64::from);
         }
-        if let Some(store) = progress_store {
-            if let Ok(mut guard) = store.lock() {
+        if let Some(store) = progress_store
+            && let Ok(mut guard) = store.lock() {
                 patch_store_from_state(&mut guard, fen, &st);
             }
-        }
         EngineAnalyzeResult {
             best_move: st.best_move,
             score: st.score,

@@ -150,10 +150,12 @@ fn render_battle(frame: &mut Frame<'_>, area: Rect, app: &App) -> layout::Battle
         .constraints([Constraint::Length(BUTTON_PANEL_HEIGHT), Constraint::Min(0)])
         .split(columns[1]);
 
-    crate::runtime_log::debug(format!(
-        "battle_layout col1={:?} buttons={:?} eval={:?}",
-        columns[1], right[0], right[1]
-    ));
+    crate::runtime_log::debug_lazy(|| {
+        format!(
+            "battle_layout col1={:?} buttons={:?} eval={:?}",
+            columns[1], right[0], right[1]
+        )
+    });
 
     let board = board::render_grid_board(
         frame,

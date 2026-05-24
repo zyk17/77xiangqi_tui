@@ -12,8 +12,16 @@ pub fn debug(message: impl AsRef<str>) {
     write_log("debug", message.as_ref());
 }
 
+/// 仅在 `XIANGQI_TUI_DEBUG=1` 时格式化并写入，供热路径日志使用。
+pub fn debug_lazy(build: impl FnOnce() -> String) {
+    if !debug_enabled() {
+        return;
+    }
+    write_log("debug", &build());
+}
+
 /// 设置环境变量 `XIANGQI_TUI_DEBUG=1` 时写入 `logs/runtime.log`。
-fn debug_enabled() -> bool {
+pub fn debug_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
         std::env::var("XIANGQI_TUI_DEBUG")

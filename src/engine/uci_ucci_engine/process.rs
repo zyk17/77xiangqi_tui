@@ -334,10 +334,9 @@ impl UciUcciEngine {
     }
 
     pub(crate) fn clear_queue(&self) {
-        if let Ok(g) = self.rt.lock() {
-            if let Some(rt) = g.as_ref() {
+        if let Ok(g) = self.rt.lock()
+            && let Some(rt) = g.as_ref() {
                 while rt.lines.try_recv().is_ok() {}
             }
-        }
     }
 }

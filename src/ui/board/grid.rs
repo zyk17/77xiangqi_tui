@@ -242,18 +242,20 @@ pub fn render_grid_board(
         .title(Span::styled("A 棋盘", text_bold()));
     let inner = board_block_inner(area);
     let m = grid_metrics_for_board_area(area);
-    crate::runtime_log::debug(format!(
-        "board_grid cell={}x{} piece={}x{} inner={:?} grid={}x{} pad=({},{})",
-        m.cell_w,
-        m.cell_h,
-        m.piece_w,
-        m.piece_h,
-        inner,
-        m.line_cols(),
-        grid_line_count(m.cell_h),
-        m.pad_left,
-        m.pad_top
-    ));
+    crate::runtime_log::debug_lazy(|| {
+        format!(
+            "board_grid cell={}x{} piece={}x{} inner={:?} grid={}x{} pad=({},{})",
+            m.cell_w,
+            m.cell_h,
+            m.piece_w,
+            m.piece_h,
+            inner,
+            m.line_cols(),
+            grid_line_count(m.cell_h),
+            m.pad_left,
+            m.pad_top
+        )
+    });
     let mut lines = Vec::new();
     lines.push(border_line(&m, '┌', '┬', '┐', |file| {
         cell_highlight_at_screen(overlay, rotated, file, 0)
@@ -558,20 +560,18 @@ fn move_highlight_overlay(
     last: Option<BoardArrow>,
     pending: Option<BoardArrow>,
 ) -> Option<(Color, bool)> {
-    if let Some(a) = pending {
-        if (a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank)
+    if let Some(a) = pending
+        && ((a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank))
         {
             let red = arrow_mover_is_red(board, &a);
             return Some((side_highlight_bg(red, true), true));
         }
-    }
-    if let Some(a) = last {
-        if (a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank)
+    if let Some(a) = last
+        && ((a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank))
         {
             let red = arrow_mover_is_red(board, &a);
             return Some((side_highlight_bg(red, false), false));
         }
-    }
     None
 }
 

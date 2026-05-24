@@ -103,11 +103,10 @@ impl AutoplayService {
             return false;
         }
         analysis.apply_book_response(&mut game.analysis, response);
-        if set_query_arrow {
-            if let Some(uci) = best_uci_from_book(response) {
+        if set_query_arrow
+            && let Some(uci) = best_uci_from_book(response) {
                 Self::set_pending_arrow(game, &uci);
             }
-        }
         true
     }
 

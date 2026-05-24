@@ -63,11 +63,10 @@ impl AnalysisService {
         show_arrow: bool,
         pending_arrow: &mut Option<BoardArrow>,
     ) {
-        if show_arrow {
-            if let Some(arrow) = board_arrow_from_uci(uci_best) {
+        if show_arrow
+            && let Some(arrow) = board_arrow_from_uci(uci_best) {
                 *pending_arrow = Some(arrow);
             }
-        }
     }
 
     pub fn apply_engine_result(
