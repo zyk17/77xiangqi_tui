@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use crate::{
     book::{BookConfig, BookResponse},
-    engine::{EngineAnalyzeResult, uci_ucci_engine::info_state::uci_xiangqi_best_ready},
+    engine::{
+        AnalysisSnapshot, EngineAnalyzeResult,
+        uci_ucci_engine::info_state::uci_xiangqi_best_ready,
+    },
     game::GameState,
     service::AnalysisService,
     xiangqi::Side,
@@ -28,6 +31,22 @@ pub fn book_config_usable(cfg: &BookConfig) -> bool {
 
 pub fn should_query_book_for_display(cfg: &BookConfig) -> bool {
     book_config_usable(cfg)
+}
+
+/// 查询/实时评估：当前 FEN 尚未完成棋库判定，或棋库已命中时，不挂 `go infinite`。
+pub fn book_defers_engine_stream(
+    cfg: &BookConfig,
+    last_book_fen: &str,
+    fen: &str,
+    book_blocks_engine: bool,
+) -> bool {
+    if !should_query_book_for_display(cfg) {
+        return false;
+    }
+    if last_book_fen != fen {
+        return true;
+    }
+    book_blocks_engine
 }
 
 pub fn should_try_book_for_autoplay(game: &GameState, cfg: &BookConfig) -> bool {
@@ -78,6 +97,19 @@ pub fn best_uci_from_book(response: &BookResponse) -> Option<String> {
         .clone()
         .or_else(|| response.move_uci.clone())
         .filter(|uci| uci_xiangqi_best_ready(uci))
+}
+
+/// 当前 D 区来自棋库命中时的推荐着（非 `engine` 源）。
+pub fn best_uci_from_analysis_book(snapshot: &AnalysisSnapshot) -> Option<String> {
+    if snapshot.source == "engine" {
+        return None;
+    }
+    let uci = snapshot.best_move.trim();
+    if uci_xiangqi_best_ready(uci) {
+        Some(uci.to_string())
+    } else {
+        None
+    }
 }
 
 pub fn best_uci_from_engine(result: &EngineAnalyzeResult) -> Option<String> {
@@ -143,6 +175,31 @@ mod tests {
         };
         assert!(book_has_preview(&response));
         assert_eq!(best_uci_from_book(&response).as_deref(), Some("h2e2"));
+    }
+
+    #[test]
+    fn book_defers_stream_until_fen_resolved() {
+        let cfg = BookConfig {
+            local_path: "x.obk".to_string(),
+            local_enabled: true,
+            ..BookConfig::default()
+        };
+        assert!(book_defers_engine_stream(&cfg, "", "fen1", false));
+        assert!(!book_defers_engine_stream(&cfg, "fen1", "fen1", false));
+        assert!(book_defers_engine_stream(&cfg, "fen1", "fen1", true));
+    }
+
+    #[test]
+    fn analysis_book_uci_skips_engine_source() {
+        let mut snap = AnalysisSnapshot::idle();
+        snap.source = "obk".to_string();
+        snap.best_move = "h2e2".to_string();
+        assert_eq!(
+            best_uci_from_analysis_book(&snap).as_deref(),
+            Some("h2e2")
+        );
+        snap.source = "engine".to_string();
+        assert!(best_uci_from_analysis_book(&snap).is_none());
     }
 
     #[test]

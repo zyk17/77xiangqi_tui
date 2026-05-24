@@ -76,3 +76,6 @@
 - 引擎/棋库在 **后台 `std::thread`** 中运行，主循环按需 `draw`；不要用 Tokio 另起一套模型
 - 开局库查询走 `service/book_async`（单 worker + 共享 `generation`），勿在主线程同步 `query_opening_book`
 - 模式全关时必须 `stop` + `terminate` 引擎子进程，对齐 GUI `clear_engine_mode_state` / `prepare_for_next_engine_command`
+- **开局库命中**（`book_blocks_engine`）：本 FEN 下**所有引擎路径均跳过**（infinite、`go`、poll、release 以外的停流）；D 区与箭头用棋库，电脑走 `tick_ai_autoplay_from_book`
+- **未命中**：`book_blocks_engine == false` 且 `last_book_fen` 已对齐当前 FEN 后，查询/评估/电脑按原逻辑走引擎
+- 棋库判定完成前不挂 infinite；`release_if_idle` 仅在确有子进程时 join/terminate

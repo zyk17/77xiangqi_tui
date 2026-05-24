@@ -43,7 +43,9 @@ impl EngineService {
 
     /// 无任何模式需要引擎时，终止子进程（对齐 GUI `clear_engine_mode_state`）。
     pub fn release_if_idle(&self) {
-        self.stream.release_engine_process();
+        if self.stream.needs_process_release() {
+            self.stream.release_engine_process();
+        }
     }
 
     pub fn current_store(&self) -> EngineAnalysisStore {

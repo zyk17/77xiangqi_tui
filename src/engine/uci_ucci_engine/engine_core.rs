@@ -90,8 +90,13 @@ impl UciUcciEngine {
         self.terminate_locked();
     }
 
+    /// 子进程是否仍在（含 infinite / `go` 结束后未 terminate 的空闲态）。
+    pub fn has_child_process(&self) -> bool {
+        self.rt.lock().map(|g| g.is_some()).unwrap_or(false)
+    }
+
     pub fn start(&mut self) {
-        if self.rt.lock().map(|g| g.is_some()).unwrap_or(false) {
+        if self.has_child_process() {
             return;
         }
         if self.engine_path.is_none() {

@@ -16,8 +16,9 @@ use crate::{
     service::{
         AI_MOVE_DELAY, AiPhase, AppServices, AutoplayService, BOOK_ARROW_DELAY, BookQueryKind,
         CoordinateMove, GameService, ParsedCommand, SlashCommand, ai_enabled_for_side,
-        best_uci_from_book, best_uci_from_engine, should_query_book_for_display,
-        should_try_book_for_autoplay, wants_shared_infinite_stream,
+        best_uci_from_analysis_book, best_uci_from_book, best_uci_from_engine,
+        should_query_book_for_display,
+        book_defers_engine_stream, should_try_book_for_autoplay, wants_shared_infinite_stream,
     },
     settings_config,
     ui::{self, HitTarget},
@@ -281,16 +282,42 @@ impl App {
     }
 
     fn want_engine_stream(&self) -> bool {
-        !self.game.is_game_over()
-            && wants_shared_infinite_stream(&self.game)
-            && !self.book_blocks_engine
-            && !ai_enabled_for_side(&self.game)
+        if self.game.is_game_over() {
+            return false;
+        }
+        if !wants_shared_infinite_stream(&self.game) {
+            return false;
+        }
+        let fen = GameService::engine_fen(&self.game);
+        if book_defers_engine_stream(
+            &self.book,
+            &self.last_book_fen,
+            &fen,
+            self.book_blocks_engine,
+        ) {
+            return false;
+        }
+        !ai_enabled_for_side(&self.game)
             && !self.services.engine.is_autoplay_running()
             && matches!(self.ai_phase, AiPhase::Idle)
     }
 
+    /// 本 FEN 已有棋库 D 区快照时，立即恢复「库覆盖、不调引擎」。
+    fn sync_book_blocks_if_cached(&mut self, fen: &str) {
+        if self.last_book_fen == fen
+            && best_uci_from_analysis_book(&self.game.analysis).is_some()
+            && !self.book_blocks_engine
+        {
+            self.book_blocks_engine = true;
+            self.stop_engine_for_book_cover();
+        }
+    }
+
     /// 是否仍需保持引擎子进程（infinite / AI `go` / 待落子）。
     fn wants_engine_process(&self) -> bool {
+        if self.book_blocks_engine {
+            return false;
+        }
         if self.screen != Screen::Battle || !self.game.history.at_head() {
             return false;
         }
@@ -304,6 +331,13 @@ impl App {
             return true;
         }
         !matches!(self.ai_phase, AiPhase::Idle)
+    }
+
+    fn stop_engine_for_book_cover(&mut self) {
+        if self.services.engine.is_autoplay_running() || self.services.engine.is_streaming() {
+            self.services.engine.stop_all();
+        }
+        self.sync_engine_lifecycle();
     }
 
     fn sync_engine_lifecycle(&mut self) {
@@ -347,15 +381,20 @@ impl App {
                     show_arrow,
                 );
                 self.last_book_fen = done_fen;
-                self.book_blocks_engine = hit && (self.game.query_mode || self.game.realtime_eval);
-                if hit && !self.book_blocks_engine {
+                self.book_blocks_engine = hit;
+                if hit {
+                    self.stop_engine_for_book_cover();
+                } else {
                     self.last_analysis_revision = 0;
                 }
                 true
             }
             BookQueryKind::Autoplay => {
-                self.book_autoplay_checked_fen = done_fen;
+                self.book_autoplay_checked_fen = done_fen.clone();
                 if let Some(uci) = best_uci_from_book(&response) {
+                    self.last_book_fen = done_fen;
+                    self.book_blocks_engine = true;
+                    self.stop_engine_for_book_cover();
                     self.ai_phase = AutoplayService::begin_ai_wait(
                         &mut self.game,
                         uci,
@@ -388,7 +427,11 @@ impl App {
         let fen = GameService::engine_fen(&self.game);
         let want_eval = self.game.realtime_eval || self.game.query_mode;
         if want_eval {
+            self.sync_book_blocks_if_cached(&fen);
             self.request_book_display(&fen);
+        }
+        if self.book_blocks_engine {
+            return false;
         }
         let want_stream = self.want_engine_stream();
         self.services
@@ -440,15 +483,6 @@ impl App {
             return self.clear_ai_phase_if_needed();
         }
 
-        if let Some(result) = self.services.engine.poll_autoplay_done() {
-            self.finish_autoplay_engine_result(result);
-            return true;
-        }
-
-        if self.services.engine.is_autoplay_running() {
-            return self.sync_autoplay_thinking_arrow();
-        }
-
         if let AiPhase::WaitingToApply { uci, ready_at } = &self.ai_phase {
             if Instant::now() < *ready_at {
                 return false;
@@ -482,6 +516,19 @@ impl App {
         }
 
         let fen = GameService::engine_fen(&self.game);
+        if self.book_blocks_engine {
+            return self.tick_ai_autoplay_from_book(&fen);
+        }
+
+        if let Some(result) = self.services.engine.poll_autoplay_done() {
+            self.finish_autoplay_engine_result(result);
+            return true;
+        }
+
+        if self.services.engine.is_autoplay_running() {
+            return self.sync_autoplay_thinking_arrow();
+        }
+
         if should_try_book_for_autoplay(&self.game, &self.book) {
             if self.services.book_queries.is_busy() {
                 return false;
@@ -525,6 +572,21 @@ impl App {
             return false;
         }
         self.ai_phase = AiPhase::Idle;
+        true
+    }
+
+    /// 棋库已覆盖当前局面：电脑只走库着，不 `spawn` / 不 `poll` 引擎。
+    fn tick_ai_autoplay_from_book(&mut self, fen: &str) -> bool {
+        if self.last_book_fen != fen {
+            return false;
+        }
+        if !matches!(self.ai_phase, AiPhase::Idle) {
+            return false;
+        }
+        let Some(uci) = best_uci_from_analysis_book(&self.game.analysis) else {
+            return false;
+        };
+        self.ai_phase = AutoplayService::begin_ai_wait(&mut self.game, uci, AI_MOVE_DELAY);
         true
     }
 
@@ -691,6 +753,10 @@ impl App {
     }
 
     fn refresh_engine_after_mode_change(&mut self) {
+        if (self.game.realtime_eval || self.game.query_mode) && !self.game.is_game_over() {
+            let fen = GameService::engine_fen(&self.game);
+            self.sync_book_blocks_if_cached(&fen);
+        }
         self.tick_engine_stream();
         if self.game.is_game_over() {
             if self.game.realtime_eval || self.game.query_mode {
@@ -705,16 +771,27 @@ impl App {
             return;
         }
         if self.game.realtime_eval || self.game.query_mode {
-            self.status = format!(
-                "引擎流式分析中{}",
-                if self.services.engine.is_streaming() {
-                    ""
-                } else if self.engine.path.trim().is_empty() {
-                    "（请先在设置中配置引擎路径）"
-                } else {
-                    "（等待引擎输出）"
-                }
-            );
+            self.status = if self.book_blocks_engine {
+                "查询/评估：开局库覆盖（未启动引擎）。".to_string()
+            } else if book_defers_engine_stream(
+                &self.book,
+                &self.last_book_fen,
+                &GameService::engine_fen(&self.game),
+                self.book_blocks_engine,
+            ) {
+                "查询/评估：正在查开局库…".to_string()
+            } else {
+                format!(
+                    "引擎流式分析中{}",
+                    if self.services.engine.is_streaming() {
+                        ""
+                    } else if self.engine.path.trim().is_empty() {
+                        "（请先在设置中配置引擎路径）"
+                    } else {
+                        "（等待引擎输出）"
+                    }
+                )
+            };
         } else {
             self.services.engine.stop_all();
             self.game.pending_arrow = None;

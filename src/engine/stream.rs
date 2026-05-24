@@ -57,8 +57,22 @@ impl EngineStreamRuntime {
             .is_some_and(|h| !h.is_finished())
     }
 
+    /// 无 infinite / AI 线程，但子进程仍存活时需释放（避免每帧重复 join+terminate）。
+    pub fn needs_process_release(&self) -> bool {
+        if self.infinite_thread_active() || self.is_autoplay_running() {
+            return false;
+        }
+        self.engine
+            .lock()
+            .map(|eng| eng.has_child_process())
+            .unwrap_or(false)
+    }
+
     /// 无消费者时终止子进程（对齐 GUI `prepare_for_next_engine_command`：先 join 再 terminate）。
     pub fn release_engine_process(&self) {
+        if !self.needs_process_release() {
+            return;
+        }
         self.stop_infinite_stream_blocking();
         self.stop_autoplay_blocking();
         if let Ok(eng) = self.engine.lock() {
