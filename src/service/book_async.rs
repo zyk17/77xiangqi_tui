@@ -132,9 +132,12 @@ impl BookQueryRuntime {
         {
             let inflight = lock(&self.inflight);
             if let Some((job_gen, pending_fen, pending_kind)) = inflight.as_ref()
-                && pending_fen == &fen && *pending_kind == kind && !self.result_ready_for(*job_gen) {
-                    return;
-                }
+                && pending_fen == &fen
+                && *pending_kind == kind
+                && !self.result_ready_for(*job_gen)
+            {
+                return;
+            }
         }
         let job_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         *lock(&self.result) = None;

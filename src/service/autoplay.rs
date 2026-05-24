@@ -3,8 +3,7 @@ use std::time::{Duration, Instant};
 use crate::{
     book::{BookConfig, BookResponse},
     engine::{
-        AnalysisSnapshot, EngineAnalyzeResult,
-        uci_ucci_engine::info_state::uci_xiangqi_best_ready,
+        AnalysisSnapshot, EngineAnalyzeResult, uci_ucci_engine::info_state::uci_xiangqi_best_ready,
     },
     game::GameState,
     service::AnalysisService,
@@ -135,10 +134,9 @@ impl AutoplayService {
             return false;
         }
         analysis.apply_book_response(&mut game.analysis, response);
-        if set_query_arrow
-            && let Some(uci) = best_uci_from_book(response) {
-                Self::set_pending_arrow(game, &uci);
-            }
+        if set_query_arrow && let Some(uci) = best_uci_from_book(response) {
+            Self::set_pending_arrow(game, &uci);
+        }
         true
     }
 
@@ -194,10 +192,7 @@ mod tests {
         let mut snap = AnalysisSnapshot::idle();
         snap.source = "obk".to_string();
         snap.best_move = "h2e2".to_string();
-        assert_eq!(
-            best_uci_from_analysis_book(&snap).as_deref(),
-            Some("h2e2")
-        );
+        assert_eq!(best_uci_from_analysis_book(&snap).as_deref(), Some("h2e2"));
         snap.source = "engine".to_string();
         assert!(best_uci_from_analysis_book(&snap).is_none());
     }

@@ -561,17 +561,19 @@ fn move_highlight_overlay(
     pending: Option<BoardArrow>,
 ) -> Option<(Color, bool)> {
     if let Some(a) = pending
-        && ((a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank))
-        {
-            let red = arrow_mover_is_red(board, &a);
-            return Some((side_highlight_bg(red, true), true));
-        }
+        && ((a.from_file == file && a.from_rank == rank)
+            || (a.to_file == file && a.to_rank == rank))
+    {
+        let red = arrow_mover_is_red(board, &a);
+        return Some((side_highlight_bg(red, true), true));
+    }
     if let Some(a) = last
-        && ((a.from_file == file && a.from_rank == rank) || (a.to_file == file && a.to_rank == rank))
-        {
-            let red = arrow_mover_is_red(board, &a);
-            return Some((side_highlight_bg(red, false), false));
-        }
+        && ((a.from_file == file && a.from_rank == rank)
+            || (a.to_file == file && a.to_rank == rank))
+    {
+        let red = arrow_mover_is_red(board, &a);
+        return Some((side_highlight_bg(red, false), false));
+    }
     None
 }
 

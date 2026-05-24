@@ -63,13 +63,15 @@ impl UciUcciEngine {
             self.hash_mb = h.max(16);
         }
         if let Some(r) = req.repetition_rule
-            && !r.is_empty() {
-                self.repetition_rule = r;
-            }
+            && !r.is_empty()
+        {
+            self.repetition_rule = r;
+        }
         if let Some(d) = req.draw_rule
-            && !d.is_empty() {
-                self.draw_rule = d;
-            }
+            && !d.is_empty()
+        {
+            self.draw_rule = d;
+        }
         if let Some(s) = req.skill_level {
             self.skill_level = s.clamp(0, 20);
         }

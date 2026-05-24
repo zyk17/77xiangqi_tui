@@ -43,56 +43,61 @@ pub(crate) fn parse_uci_style_info_tokens(parts: &[&str]) -> Option<ParsedUciSty
     let nodes = uci_info_u64_after(parts, "nodes");
     let mut multipv = 1i32;
     if let Some(i) = parts.iter().position(|&x| x == "multipv")
-        && i + 1 < parts.len() {
-            multipv = parts[i + 1].parse().unwrap_or(1);
-        }
+        && i + 1 < parts.len()
+    {
+        multipv = parts[i + 1].parse().unwrap_or(1);
+    }
     let mut cand_score = 0.0f64;
     let mut cp_centipawns: Option<i32> = None;
     let mut has_score = false;
     let mut mate = None;
     if let Some(i) = parts.iter().position(|&x| x == "score")
-        && i + 1 < parts.len() {
-            match parts[i + 1] {
-                "cp" | "cp," => {
-                    if i + 2 < parts.len()
-                        && let Some(cp_i) = parse_i32_token_loose(parts[i + 2]) {
-                            cp_centipawns = Some(cp_i);
-                            cand_score = f64::from(cp_i) / 100.0;
-                            has_score = true;
-                        }
+        && i + 1 < parts.len()
+    {
+        match parts[i + 1] {
+            "cp" | "cp," => {
+                if i + 2 < parts.len()
+                    && let Some(cp_i) = parse_i32_token_loose(parts[i + 2])
+                {
+                    cp_centipawns = Some(cp_i);
+                    cand_score = f64::from(cp_i) / 100.0;
+                    has_score = true;
                 }
-                "mate" | "mate," => {
-                    if i + 2 < parts.len()
-                        && let Some(mate_in) = parse_i32_token_loose(parts[i + 2]) {
-                            mate = Some(mate_in);
-                            cand_score = if mate_in > 0 {
-                                9999.0
-                            } else if mate_in < 0 {
-                                -9999.0
-                            } else {
-                                0.0
-                            };
-                            has_score = true;
-                        }
+            }
+            "mate" | "mate," => {
+                if i + 2 < parts.len()
+                    && let Some(mate_in) = parse_i32_token_loose(parts[i + 2])
+                {
+                    mate = Some(mate_in);
+                    cand_score = if mate_in > 0 {
+                        9999.0
+                    } else if mate_in < 0 {
+                        -9999.0
+                    } else {
+                        0.0
+                    };
+                    has_score = true;
                 }
-                raw => {
-                    if let Some(cp_i) = parse_i32_token_loose(raw) {
-                        cp_centipawns = Some(cp_i);
-                        cand_score = f64::from(cp_i) / 100.0;
-                        has_score = true;
-                    }
+            }
+            raw => {
+                if let Some(cp_i) = parse_i32_token_loose(raw) {
+                    cp_centipawns = Some(cp_i);
+                    cand_score = f64::from(cp_i) / 100.0;
+                    has_score = true;
                 }
             }
         }
+    }
     let mut pv_tok: Vec<String> = vec![];
     if let Some(i) = parts.iter().position(|&x| x == "pv") {
         pv_tok = parts[i + 1..].iter().map(|s| s.to_string()).collect();
     }
     let mut depth = None;
     if let Some(i) = parts.iter().position(|&x| x == "depth")
-        && i + 1 < parts.len() {
-            depth = parts[i + 1].parse().ok();
-        }
+        && i + 1 < parts.len()
+    {
+        depth = parts[i + 1].parse().ok();
+    }
     let wdl = if let Some(i) = parts.iter().position(|&x| x == "wdl") {
         let w = parts.get(i + 1).and_then(|x| x.parse::<u64>().ok());
         let d = parts.get(i + 2).and_then(|x| x.parse::<u64>().ok());

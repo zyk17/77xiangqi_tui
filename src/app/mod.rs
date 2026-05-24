@@ -17,8 +17,8 @@ use crate::{
         AI_MOVE_DELAY, AiPhase, AppServices, AutoplayService, BOOK_ARROW_DELAY, BookQueryKind,
         CoordinateMove, GameService, ParsedCommand, SlashCommand, ai_enabled_for_side,
         best_uci_from_analysis_book, best_uci_from_book, best_uci_from_engine,
-        should_query_book_for_display,
-        book_defers_engine_stream, should_try_book_for_autoplay, wants_shared_infinite_stream,
+        book_defers_engine_stream, should_query_book_for_display, should_try_book_for_autoplay,
+        wants_shared_infinite_stream,
     },
     settings_config,
     ui::{self, HitTarget},
@@ -738,9 +738,10 @@ impl App {
     fn status_with_session_over(&self, detail: impl Into<String>) -> String {
         let detail = detail.into();
         if let Some(msg) = &self.game.game_over
-            && !self.game.history.at_head() {
-                return format!("{detail}（本盘已结束：{msg}）");
-            }
+            && !self.game.history.at_head()
+        {
+            return format!("{detail}（本盘已结束：{msg}）");
+        }
         detail
     }
 
